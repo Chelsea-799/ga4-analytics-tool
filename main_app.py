@@ -72,7 +72,7 @@ def main():
             with col3:
                 unused_stores = len([s for s in stores if not s.get('last_used')])
                 st.metric("📝 Stores chưa sử dụng", unused_stores)
-        except:
+        except Exception as e:
             st.info("📝 Chưa có stores nào")
     else:
         st.info("📝 Chưa có stores nào")
@@ -98,42 +98,30 @@ def main():
     ### 📊 Tính năng chính:
     - **Store Manager**: Quản lý thông tin store
     - **GA4 Analyzer**: Phân tích dữ liệu với AI
-    - **Lưu trữ an toàn**: Credentials được mã hóa
-    - **Export/Import**: Chuyển dữ liệu giữa các máy
     """)
     
-    # Thông tin về API keys
+    # Thông tin API keys
     st.markdown("---")
-    st.header("🔑 API Keys")
+    st.header("🔑 Thông tin API Keys")
     
-    col1, col2 = st.columns(2)
+    st.markdown("""
+    ### 🤖 OpenAI API Key
+    - **Cần thiết** cho phân tích AI
+    - **Lấy tại:** https://platform.openai.com/account/api-keys
+    - **Nhập trong** GA4 Analyzer
     
-    with col1:
-        st.subheader("📊 GA4 Credentials")
-        st.markdown("""
-        **Cách lấy file credentials.json:**
-        1. Vào Google Cloud Console
-        2. Tạo Service Account
-        3. Tạo key JSON
-        4. Cấp quyền cho GA4 Property
-        5. Download file credentials.json
-        """)
-    
-    with col2:
-        st.subheader("🤖 OpenAI API Key")
-        st.markdown("""
-        **Cách lấy OpenAI API key:**
-        1. Đăng ký tài khoản OpenAI
-        2. Vào API Keys section
-        3. Tạo API key mới
-        4. Copy key để sử dụng
-        """)
+    ### 📊 GA4 Credentials
+    - **File credentials.json** từ Google Analytics
+    - **Property ID** từ GA4 settings
+    - **Upload trong** Store Manager
+    """)
     
     # Footer
     st.markdown("---")
     st.markdown("""
     <div style='text-align: center; color: #666;'>
-        <p>📊 GA4 Analytics Tool - Powered by Streamlit & OpenAI</p>
+        <p>Made with ❤️ for E-commerce Analytics</p>
+        <p>GA4 Analytics Tool v1.0</p>
     </div>
     """, unsafe_allow_html=True)
 
