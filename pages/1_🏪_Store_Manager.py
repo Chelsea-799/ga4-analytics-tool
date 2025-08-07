@@ -8,7 +8,6 @@ import json
 import os
 import tempfile
 from datetime import datetime
-import pandas as pd
 
 # Cấu hình trang
 st.set_page_config(

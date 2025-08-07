@@ -51,7 +51,7 @@ def main():
         if st.button("🔍 Mở GA4 Analyzer", use_container_width=True):
             st.switch_page("pages/2_🔍_GA4_Analyzer.py")
     
-    # Thống kê
+    # Thống kê - Delay import json
     st.markdown("---")
     st.header("📊 Thống kê")
     
@@ -59,6 +59,7 @@ def main():
     stores_file = "stores_data.json"
     if os.path.exists(stores_file):
         try:
+            # Delay import json
             import json
             with open(stores_file, 'r', encoding='utf-8') as f:
                 stores = json.load(f)
