@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Google Ads Analyzer - Tool phân tích dữ liệu Google Ads
+Google Ads Analyzer - Phân tích dữ liệu Google Ads từ file JSON
 """
 
 import streamlit as st
@@ -11,9 +11,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import tempfile
-import yaml
+import numpy as np # Added for np.random.randint and np.random.uniform
 
-# Page config
+# Cấu hình trang
 st.set_page_config(
     page_title="Google Ads Analyzer",
     page_icon="📢",
@@ -22,161 +22,113 @@ st.set_page_config(
 )
 
 def load_stores():
-    """Tải danh sách stores từ file (tương thích ngược)"""
-    path = 'stores_data.json'
-    if os.path.exists(path):
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                raw = json.load(f)
-            if isinstance(raw, list):
-                normalized = {}
-                for s in raw:
-                    name = s.get('store_name') or s.get('name') or f"store_{s.get('id','')}"
-                    normalized[name] = {
-                        'store_name': s.get('store_name', name),
-                        'domain': s.get('domain'),
-                        'created_at': s.get('created_at'),
-                        'last_used': s.get('last_used'),
-                        'ga4_property_id': s.get('property_id') or s.get('ga4_property_id'),
-                        'ga4_credentials_content': s.get('credentials_content') or s.get('ga4_credentials_content'),
-                        'google_ads_customer_id': s.get('google_ads_customer_id'),
-                        'google_ads_developer_token': s.get('google_ads_developer_token'),
-                        'google_ads_client_id': s.get('google_ads_client_id'),
-                        'google_ads_client_secret': s.get('google_ads_client_secret'),
-                        'google_ads_refresh_token': s.get('google_ads_refresh_token'),
-                    }
-                try:
-                    with open(path, 'w', encoding='utf-8') as wf:
-                        json.dump(normalized, wf, ensure_ascii=False, indent=2)
-                except Exception:
-                    pass
-                return normalized
-            elif isinstance(raw, dict):
-                return raw
-            else:
-                return {}
-        except Exception:
-            return {}
-    return {}
-
-def create_google_ads_yaml(store_data):
-    """Tạo file google-ads.yaml tạm thời"""
+    """Load stores data với backward compatibility"""
     try:
-        yaml_content = {
-            'developer_token': store_data['google_ads_developer_token'],
-            'client_id': store_data['google_ads_client_id'],
-            'client_secret': store_data['google_ads_client_secret'],
-            'refresh_token': store_data['google_ads_refresh_token'],
-            'use_proto_plus': True
-        }
+        with open('stores_data.json', 'r', encoding='utf-8') as f:
+            stores_data = json.load(f)
         
-        # Tạo file tạm thời
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.yaml', mode='w') as tmp_file:
-            yaml.dump(yaml_content, tmp_file, default_flow_style=False)
-            return tmp_file.name
+        # Backward compatibility: nếu là list thì convert thành dict
+        if isinstance(stores_data, list):
+            stores_dict = {}
+            for store in stores_data:
+                stores_dict[store['store_name']] = store
+            return stores_dict
+        else:
+            return stores_data
     except Exception as e:
-        st.error(f"❌ Lỗi tạo file google-ads.yaml: {e}")
-        return None
+        st.error(f"❌ Lỗi load stores: {e}")
+        return {}
 
-def fetch_google_ads_data(store_data, days=30):
-    """Lấy dữ liệu từ Google Ads API"""
+def get_cursor_file(store_name):
+    """Lấy file cursor cho store"""
+    return f"data/cursor_{store_name}.txt"
+
+def get_ads_data_file(store_name):
+    """Lấy file dữ liệu Google Ads cho store"""
+    return f"data/google_ads_{store_name}.json"
+
+def load_cursor(store_name):
+    """Load cursor để track dữ liệu đã xử lý"""
+    cursor_file = get_cursor_file(store_name)
     try:
-        # Tạo file google-ads.yaml
-        yaml_path = create_google_ads_yaml(store_data)
-        if not yaml_path:
-            return None
-        
-        # Import Google Ads API
-        from google.ads.googleads.client import GoogleAdsClient
-        from google.ads.googleads.errors import GoogleAdsException
-        
-        # Khởi tạo client
-        client = GoogleAdsClient.load_from_storage(yaml_path)
-        
-        # Lấy customer service
-        customer_service = client.get_service("CustomerService")
-        
-        # Lấy campaign service
-        campaign_service = client.get_service("CampaignService")
-        
-        # Query campaigns
-        query = """
-            SELECT 
-                campaign.id,
-                campaign.name,
-                campaign.status,
-                campaign.advertising_channel_type,
-                metrics.impressions,
-                metrics.clicks,
-                metrics.cost_micros,
-                metrics.average_cpc,
-                metrics.ctr,
-                metrics.average_cpm
-            FROM campaign 
-            WHERE segments.date DURING LAST_30_DAYS
-        """
-        
-        # Thực hiện query
-        ga_service = client.get_service("GoogleAdsService")
-        response = ga_service.search(
-            customer_id=store_data['google_ads_customer_id'],
-            query=query
-        )
-        
-        # Parse kết quả
-        data = []
-        for row in response:
-            data.append({
-                'campaign_id': row.campaign.id,
-                'campaign_name': row.campaign.name,
-                'status': row.campaign.status.name,
-                'channel_type': row.campaign.advertising_channel_type.name,
-                'impressions': row.metrics.impressions,
-                'clicks': row.metrics.clicks,
-                'cost_micros': row.metrics.cost_micros,
-                'average_cpc': row.metrics.average_cpc,
-                'ctr': row.metrics.ctr,
-                'average_cpm': row.metrics.average_cpm
-            })
-        
-        # Xóa file tạm thời
-        os.unlink(yaml_path)
-        
-        return pd.DataFrame(data)
-        
-    except GoogleAdsException as ex:
-        st.error(f"❌ Lỗi Google Ads API: {ex}")
-        return None
-    except Exception as e:
-        st.error(f"❌ Lỗi khi lấy dữ liệu Google Ads: {e}")
-        return None
+        if os.path.exists(cursor_file):
+            with open(cursor_file, 'r') as f:
+                return int(f.read().strip())
+        return 0
+    except:
+        return 0
 
-def create_demo_ads_data():
-    """Tạo dữ liệu demo cho Google Ads"""
-    campaigns = [
-        "Brand Campaign",
-        "Product Search",
-        "Retargeting",
-        "Display Network",
-        "Shopping Campaign"
-    ]
+def save_cursor(store_name, line_count):
+    """Lưu cursor sau khi xử lý"""
+    cursor_file = get_cursor_file(store_name)
+    try:
+        os.makedirs(os.path.dirname(cursor_file), exist_ok=True)
+        with open(cursor_file, 'w') as f:
+            f.write(str(line_count))
+        return True
+    except Exception as e:
+        st.error(f"❌ Lỗi lưu cursor: {e}")
+        return False
+
+def load_ads_data(store_name):
+    """Load dữ liệu Google Ads từ file JSON"""
+    data_file = get_ads_data_file(store_name)
     
-    data = []
-    for i, campaign in enumerate(campaigns):
-        data.append({
-            'campaign_id': f"campaign_{i+1}",
-            'campaign_name': campaign,
-            'status': 'ENABLED',
-            'channel_type': 'SEARCH',
-            'impressions': 10000 + i * 2000,
-            'clicks': 500 + i * 100,
-            'cost_micros': 5000000 + i * 1000000,  # 5 USD + i USD
-            'average_cpc': 1000000 + i * 50000,  # 1 USD + i * 0.05 USD
-            'ctr': 0.05 + i * 0.01,
-            'average_cpm': 500000 + i * 50000  # 0.5 USD + i * 0.05 USD
-        })
+    if not os.path.exists(data_file):
+        st.warning(f"⚠️ Chưa có file dữ liệu: {data_file}")
+        st.info("💡 Hướng dẫn tạo file dữ liệu:")
+        st.markdown("""
+        1. **Xuất dữ liệu từ Google Ads:**
+           - Vào Google Ads → Reports → Export to Google Sheets
+           - Hoặc: Tools → Bulk Actions → Export
+           
+        2. **Convert thành JSON:**
+           - Copy dữ liệu từ Google Sheets
+           - Convert thành format JSON
+           - Lưu vào file `data/google_ads_{store_name}.json`
+           
+        3. **Format JSON mẫu:**
+        ```json
+        [
+          {
+            "date": "2024-01-01",
+            "campaign": "Campaign Name",
+            "impressions": 1000,
+            "clicks": 50,
+            "cost": 100.50,
+            "conversions": 5,
+            "conversion_value": 500.00
+          }
+        ]
+        ```
+        """)
+        return pd.DataFrame()
     
-    return pd.DataFrame(data)
+    try:
+        with open(data_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        if not data:
+            st.warning("⚠️ File dữ liệu trống")
+            return pd.DataFrame()
+        
+        # Convert thành DataFrame
+        df = pd.DataFrame(data)
+        
+        # Kiểm tra và xử lý dữ liệu mới
+        current_cursor = load_cursor(store_name)
+        if len(data) > current_cursor:
+            new_data_count = len(data) - current_cursor
+            st.success(f"🆕 Phát hiện {new_data_count} dòng dữ liệu mới!")
+            
+            # Cập nhật cursor
+            save_cursor(store_name, len(data))
+        
+        return df
+        
+    except Exception as e:
+        st.error(f"❌ Lỗi load dữ liệu: {e}")
+        return pd.DataFrame()
 
 def analyze_ads_performance(df):
     """Phân tích hiệu suất Google Ads"""
@@ -184,34 +136,68 @@ def analyze_ads_performance(df):
         return {}
     
     # Tính toán metrics
-    total_impressions = df['impressions'].sum()
-    total_clicks = df['clicks'].sum()
-    total_cost = df['cost_micros'].sum() / 1000000  # Convert to USD
-    avg_ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0
-    avg_cpc = (total_cost / total_clicks) if total_clicks > 0 else 0
-    avg_cpm = (total_cost / total_impressions * 1000) if total_impressions > 0 else 0
+    total_impressions = df['impressions'].sum() if 'impressions' in df.columns else 0
+    total_clicks = df['clicks'].sum() if 'clicks' in df.columns else 0
+    total_cost = df['cost'].sum() if 'cost' in df.columns else 0
+    total_conversions = df['conversions'].sum() if 'conversions' in df.columns else 0
+    total_conversion_value = df['conversion_value'].sum() if 'conversion_value' in df.columns else 0
     
-    # Top performing campaigns
-    top_campaigns = df.nlargest(5, 'clicks')[['campaign_name', 'clicks', 'impressions', 'ctr']]
-    
-    # Cost analysis
-    cost_analysis = df.nlargest(5, 'cost_micros')[['campaign_name', 'cost_micros', 'clicks', 'average_cpc']]
+    # Tính toán rates
+    ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0
+    cpc = (total_cost / total_clicks) if total_clicks > 0 else 0
+    cpm = (total_cost / total_impressions * 1000) if total_impressions > 0 else 0
+    conversion_rate = (total_conversions / total_clicks * 100) if total_clicks > 0 else 0
+    roas = (total_conversion_value / total_cost) if total_cost > 0 else 0
     
     return {
         'total_impressions': total_impressions,
         'total_clicks': total_clicks,
         'total_cost': total_cost,
-        'avg_ctr': avg_ctr,
-        'avg_cpc': avg_cpc,
-        'avg_cpm': avg_cpm,
-        'top_campaigns': top_campaigns,
-        'cost_analysis': cost_analysis
+        'total_conversions': total_conversions,
+        'total_conversion_value': total_conversion_value,
+        'ctr': ctr,
+        'cpc': cpc,
+        'cpm': cpm,
+        'conversion_rate': conversion_rate,
+        'roas': roas
     }
+
+def create_demo_ads_data():
+    """Tạo dữ liệu demo cho Google Ads"""
+    dates = pd.date_range(start='2024-01-01', end='2024-01-31', freq='D')
+    
+    campaigns = [
+        "Brand Campaign",
+        "Product Search",
+        "Retargeting",
+        "Shopping Campaign",
+        "Display Network"
+    ]
+    
+    demo_data = []
+    for date in dates:
+        for campaign in campaigns:
+            impressions = np.random.randint(100, 5000)
+            clicks = np.random.randint(5, int(impressions * 0.1))
+            cost = np.random.uniform(10, 200)
+            conversions = np.random.randint(0, int(clicks * 0.3))
+            conversion_value = conversions * np.random.uniform(50, 200)
+            
+            demo_data.append({
+                'date': date.strftime('%Y-%m-%d'),
+                'campaign': campaign,
+                'impressions': impressions,
+                'clicks': clicks,
+                'cost': round(cost, 2),
+                'conversions': conversions,
+                'conversion_value': round(conversion_value, 2)
+            })
+    
+    return demo_data
 
 def main():
     """Hàm chính"""
-    st.title("📢 Google Ads Analyzer")
-    st.markdown("Phân tích dữ liệu Google Ads với AI")
+    st.title("📢 Google Ads Analyzer - Phân tích dữ liệu Google Ads")
     st.markdown("---")
     
     # Load stores
@@ -222,129 +208,238 @@ def main():
         st.header("⚙️ Cấu hình")
         
         # Chọn store
-        store_names = list(stores.keys())
-        if not store_names:
-            st.warning("📝 Chưa có store nào. Hãy vào Store Manager để thêm store!")
-            return
-        
-        selected_store = st.selectbox(
-            "🏪 Chọn Store",
-            store_names,
-            index=0
-        )
-        
-        if selected_store:
-            store_data = stores[selected_store]
+        if stores:
+            store_names = list(stores.keys())
+            selected_store_name = st.selectbox(
+                "🏪 Chọn Store",
+                store_names,
+                index=0
+            )
+            
+            selected_store = stores[selected_store_name]
+            st.success(f"✅ Store: {selected_store_name}")
             
             # Kiểm tra Google Ads config
-            if not store_data.get('google_ads_customer_id'):
-                st.error("❌ Store này chưa cấu hình Google Ads!")
-                st.info("💡 Vào Store Manager để cấu hình Google Ads")
-                return
+            ads_customer_id = selected_store.get('ads_customer_id')
+            if ads_customer_id:
+                st.info(f"🆔 Customer ID: {ads_customer_id}")
+            else:
+                st.warning("⚠️ Chưa có Google Ads config")
+        else:
+            st.warning("⚠️ Chưa có stores nào")
+            st.info("💡 Vào Store Manager để thêm store")
+            if st.button("🏪 Mở Store Manager"):
+                st.switch_page("pages/1_🏪_Store_Manager.py")
+            return
+        
+        st.markdown("---")
+        
+        # Upload file dữ liệu
+        st.subheader("📁 Upload dữ liệu Google Ads")
+        st.info("💡 Upload file JSON chứa dữ liệu Google Ads")
+        
+        uploaded_file = st.file_uploader(
+            "Chọn file JSON",
+            type=['json'],
+            key="ads_upload"
+        )
+        
+        if uploaded_file is not None:
+            try:
+                # Đọc dữ liệu từ file upload
+                data = json.load(uploaded_file)
+                
+                # Lưu vào data directory
+                data_file = get_ads_data_file(selected_store_name)
+                os.makedirs(os.path.dirname(data_file), exist_ok=True)
+                
+                with open(data_file, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+                
+                st.success(f"✅ Đã lưu dữ liệu vào: {data_file}")
+                
+            except Exception as e:
+                st.error(f"❌ Lỗi xử lý file: {e}")
+        
+        # Tạo dữ liệu demo
+        st.markdown("---")
+        st.subheader("🧪 Demo Data")
+        if st.button("🎲 Tạo dữ liệu demo"):
+            demo_data = create_demo_ads_data()
+            data_file = get_ads_data_file(selected_store_name)
+            os.makedirs(os.path.dirname(data_file), exist_ok=True)
             
-            st.success("✅ Google Ads đã cấu hình")
+            with open(data_file, 'w', encoding='utf-8') as f:
+                json.dump(demo_data, f, indent=2, ensure_ascii=False)
             
-            # Date range
-            st.subheader("📅 Thời gian phân tích")
-            days = st.slider("Số ngày", 7, 90, 30)
-            
-            # OpenAI API Key
-            st.subheader("🤖 OpenAI API")
-            openai_key = st.text_input("OpenAI API Key", type="password", placeholder="sk-...")
-            
-            # Analyze button
-            if st.button("🚀 Phân tích Google Ads", use_container_width=True):
-                st.session_state['analyze_ads'] = True
-                st.session_state['selected_store'] = store_data
-                st.session_state['days'] = days
-                st.session_state['openai_key'] = openai_key
+            st.success("✅ Đã tạo dữ liệu demo!")
+            st.rerun()
     
     # Main content
-    if 'analyze_ads' in st.session_state and st.session_state['analyze_ads']:
-        store_data = st.session_state['selected_store']
-        days = st.session_state['days']
+    if 'selected_store' in locals():
+        st.header(f"📊 Phân tích Google Ads - {selected_store_name}")
         
-        with st.spinner("🔄 Đang lấy dữ liệu Google Ads..."):
-            # Lấy dữ liệu
-            df = fetch_google_ads_data(store_data, days)
+        # Load dữ liệu
+        df = load_ads_data(selected_store_name)
+        
+        if not df.empty:
+            # Hiển thị thống kê tổng quan
+            metrics = analyze_ads_performance(df)
             
-            if df is None or df.empty:
-                st.warning("⚠️ Không thể lấy dữ liệu từ Google Ads API. Hiển thị dữ liệu demo...")
-                df = create_demo_ads_data()
-            
-            # Phân tích hiệu suất
-            performance = analyze_ads_performance(df)
-            
-            # Hiển thị kết quả
-            st.success("✅ Đã lấy dữ liệu Google Ads thành công!")
-            
-            # Metrics overview
             col1, col2, col3, col4 = st.columns(4)
+            
             with col1:
-                st.metric("👁️ Impressions", f"{performance['total_impressions']:,}")
+                st.metric("👁️ Impressions", f"{metrics['total_impressions']:,}")
+                st.metric("🖱️ Clicks", f"{metrics['total_clicks']:,}")
+            
             with col2:
-                st.metric("🖱️ Clicks", f"{performance['total_clicks']:,}")
+                st.metric("💰 Cost", f"${metrics['total_cost']:,.2f}")
+                st.metric("📊 CTR", f"{metrics['ctr']:.2f}%")
+            
             with col3:
-                st.metric("💰 Cost", f"${performance['total_cost']:,.2f}")
+                st.metric("🎯 Conversions", f"{metrics['total_conversions']:,}")
+                st.metric("💵 CPC", f"${metrics['cpc']:.2f}")
+            
             with col4:
-                st.metric("📊 CTR", f"{performance['avg_ctr']:.2f}%")
+                st.metric("💎 ROAS", f"{metrics['roas']:.2f}x")
+                st.metric("📈 Conv. Rate", f"{metrics['conversion_rate']:.2f}%")
             
-            # Charts
-            col1, col2 = st.columns(2)
+            # Biểu đồ performance theo thời gian
+            st.subheader("📈 Performance theo thời gian")
             
-            with col1:
-                st.subheader("📈 Top Campaigns by Clicks")
-                fig = px.bar(
-                    performance['top_campaigns'],
-                    x='campaign_name',
-                    y='clicks',
-                    title="Top 5 Campaigns by Clicks"
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            
-            with col2:
-                st.subheader("💰 Cost Analysis")
-                cost_df = performance['cost_analysis'].copy()
-                cost_df['cost_usd'] = cost_df['cost_micros'] / 1000000
+            if 'date' in df.columns:
+                # Convert date column
+                df['date'] = pd.to_datetime(df['date'])
                 
-                fig = px.bar(
-                    cost_df,
-                    x='campaign_name',
-                    y='cost_usd',
-                    title="Top 5 Campaigns by Cost"
+                # Group by date
+                daily_data = df.groupby('date').agg({
+                    'impressions': 'sum',
+                    'clicks': 'sum',
+                    'cost': 'sum',
+                    'conversions': 'sum',
+                    'conversion_value': 'sum'
+                }).reset_index()
+                
+                # Tính CTR và CPC
+                daily_data['CTR'] = (daily_data['clicks'] / daily_data['impressions'] * 100).fillna(0)
+                daily_data['CPC'] = (daily_data['cost'] / daily_data['clicks']).fillna(0)
+                
+                # Biểu đồ line chart
+                fig = go.Figure()
+                
+                fig.add_trace(go.Scatter(
+                    x=daily_data['date'],
+                    y=daily_data['impressions'],
+                    name='Impressions',
+                    yaxis='y'
+                ))
+                
+                fig.add_trace(go.Scatter(
+                    x=daily_data['date'],
+                    y=daily_data['clicks'],
+                    name='Clicks',
+                    yaxis='y'
+                ))
+                
+                fig.add_trace(go.Scatter(
+                    x=daily_data['date'],
+                    y=daily_data['cost'],
+                    name='Cost',
+                    yaxis='y2'
+                ))
+                
+                fig.update_layout(
+                    title="Performance theo ngày",
+                    xaxis_title="Ngày",
+                    yaxis_title="Impressions/Clicks",
+                    yaxis2=dict(title="Cost ($)", overlaying="y", side="right"),
+                    hovermode='x unified'
                 )
+                
                 st.plotly_chart(fig, use_container_width=True)
             
-            # Detailed table
-            st.subheader("📋 Chi tiết Campaigns")
-            display_df = df.copy()
-            display_df['cost_usd'] = display_df['cost_micros'] / 1000000
-            display_df['ctr_percent'] = display_df['ctr'] * 100
-            display_df['cpc_usd'] = display_df['average_cpc'] / 1000000
-            display_df['cpm_usd'] = display_df['average_cpm'] / 1000000
+            # Top campaigns
+            st.subheader("🏆 Top Campaigns")
             
-            # Rename columns
-            display_df = display_df[[
-                'campaign_name', 'status', 'impressions', 'clicks', 
-                'cost_usd', 'ctr_percent', 'cpc_usd', 'cpm_usd'
-            ]]
-            display_df.columns = [
-                'Campaign Name', 'Status', 'Impressions', 'Clicks',
-                'Cost (USD)', 'CTR (%)', 'CPC (USD)', 'CPM (USD)'
-            ]
+            if 'campaign' in df.columns:
+                campaign_stats = df.groupby('campaign').agg({
+                    'impressions': 'sum',
+                    'clicks': 'sum',
+                    'cost': 'sum',
+                    'conversions': 'sum',
+                    'conversion_value': 'sum'
+                }).reset_index()
+                
+                campaign_stats['CTR'] = (campaign_stats['clicks'] / campaign_stats['impressions'] * 100).fillna(0)
+                campaign_stats['CPC'] = (campaign_stats['cost'] / campaign_stats['clicks']).fillna(0)
+                campaign_stats['ROAS'] = (campaign_stats['conversion_value'] / campaign_stats['cost']).fillna(0)
+                
+                # Top 10 campaigns by cost
+                top_campaigns = campaign_stats.nlargest(10, 'cost')
+                
+                # Hiển thị bảng
+                display_df = top_campaigns[['campaign', 'impressions', 'clicks', 'cost', 'CTR', 'CPC', 'ROAS']].copy()
+                display_df.columns = ['Campaign', 'Impressions', 'Clicks', 'Cost ($)', 'CTR (%)', 'CPC ($)', 'ROAS']
+                display_df['Cost ($)'] = display_df['Cost ($)'].round(2)
+                display_df['CTR (%)'] = display_df['CTR (%)'].round(2)
+                display_df['CPC ($)'] = display_df['CPC ($)'].round(2)
+                display_df['ROAS'] = display_df['ROAS'].round(2)
+                
+                st.dataframe(display_df, use_container_width=True)
+                
+                # Biểu đồ top campaigns
+                fig = px.bar(
+                    top_campaigns,
+                    x='campaign',
+                    y='cost',
+                    title="Top Campaigns by Cost",
+                    labels={'campaign': 'Campaign', 'cost': 'Cost ($)'}
+                )
+                fig.update_xaxes(tickangle=45)
+                st.plotly_chart(fig, use_container_width=True)
             
-            st.dataframe(display_df, use_container_width=True)
+            # Raw data
+            with st.expander("📋 Xem dữ liệu gốc"):
+                st.dataframe(df, use_container_width=True)
+                
+                # Export options
+                col1, col2 = st.columns(2)
+                with col1:
+                    csv = df.to_csv(index=False)
+                    st.download_button(
+                        "📥 Download CSV",
+                        csv,
+                        file_name=f"google_ads_{selected_store_name}_{datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv"
+                    )
+                
+                with col2:
+                    json_str = df.to_json(orient='records', indent=2)
+                    st.download_button(
+                        "📥 Download JSON",
+                        json_str,
+                        file_name=f"google_ads_{selected_store_name}_{datetime.now().strftime('%Y%m%d')}.json",
+                        mime="application/json"
+                    )
+        
+        else:
+            st.info("💡 Chưa có dữ liệu Google Ads")
+            st.markdown("""
+            **Hướng dẫn lấy dữ liệu:**
             
-            # AI Insights
-            if st.session_state.get('openai_key'):
-                st.subheader("🤖 Phân tích AI")
-                if st.button("💡 Tạo insights"):
-                    # TODO: Implement AI insights
-                    st.info("🚧 Tính năng AI insights đang phát triển...")
-    
-    else:
-        # Instructions
-        st.info("💡 Chọn store và cấu hình ở sidebar, sau đó nhấn 'Phân tích Google Ads'")
+            1. **Từ Google Ads:**
+               - Vào Google Ads → Reports
+               - Chọn date range và metrics
+               - Export to Google Sheets
+            
+            2. **Convert thành JSON:**
+               - Copy dữ liệu từ Google Sheets
+               - Convert thành format JSON
+               - Upload file JSON ở sidebar
+            
+            3. **Hoặc dùng demo data:**
+               - Click "🎲 Tạo dữ liệu demo" ở sidebar
+            """)
 
 if __name__ == "__main__":
     main()
