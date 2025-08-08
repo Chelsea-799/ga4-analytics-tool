@@ -7,6 +7,8 @@ google-auth>=2.23.0
 plotly>=5.10
 altair>=4.2
 python-dotenv
+google-ads>=22.0.0
+pyyaml>=6.0
 
 # Build dependencies
 pip>=23.0
