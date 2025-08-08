@@ -340,15 +340,27 @@ def main():
         selected_store = st.session_state.get('selected_store', None)
         
         if selected_store:
-            st.success(f"✅ Store đã chọn: {selected_store['store_name']}")
-            st.info(f"🌐 Domain: {selected_store['domain']}")
-            st.info(f"🆔 Property ID: {selected_store['property_id']}")
+            ga4_property_id_selected = selected_store.get('ga4_property_id') or selected_store.get('property_id') or ""
+            st.success(f"✅ Store đã chọn: {selected_store.get('store_name', 'N/A')}")
+            st.info(f"🌐 Domain: {selected_store.get('domain', 'N/A')}")
+            st.info(f"🆔 Property ID: {ga4_property_id_selected}")
             
             if st.button("🔄 Chọn store khác"):
                 del st.session_state['selected_store']
                 st.rerun()
             
-            credentials_path = selected_store['credentials_path']
+            # Tạo file credentials tạm nếu có nội dung credentials trong store
+            credentials_path = None
+            ga4_credentials_content = selected_store.get('ga4_credentials_content') or selected_store.get('credentials_content')
+            if ga4_credentials_content:
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.json', mode='w') as tmp_file:
+                        tmp_file.write(ga4_credentials_content)
+                        credentials_path = tmp_file.name
+                except Exception:
+                    credentials_path = None
+            else:
+                credentials_path = selected_store.get('credentials_path')
         else:
             st.info("💡 Chưa có store nào được chọn")
             st.markdown("**Chọn phương thức:**")
@@ -384,9 +396,11 @@ def main():
         # Form nhập thông tin
         with st.form("store_info"):
             # Tự động điền thông tin từ store đã chọn
-            default_store_name = selected_store['store_name'] if selected_store else ""
-            default_domain = selected_store['domain'] if selected_store else ""
-            default_property_id = selected_store['property_id'] if selected_store else ""
+            default_store_name = selected_store.get('store_name', "") if selected_store else ""
+            default_domain = selected_store.get('domain', "") if selected_store else ""
+            default_property_id = (
+                (selected_store.get('ga4_property_id') or selected_store.get('property_id')) if selected_store else ""
+            )
             
             store_name = st.text_input("🏪 Tên store", value=default_store_name, placeholder="Ví dụ: Vinahomesvlas Store")
             domain = st.text_input("🌐 Domain website", value=default_domain, placeholder="https://example.com")
