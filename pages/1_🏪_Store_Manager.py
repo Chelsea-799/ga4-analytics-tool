@@ -21,12 +21,40 @@ st.set_page_config(
 STORES_FILE = "stores_data.json"
 
 def load_stores():
-    """Tải danh sách stores từ file"""
+    """Tải danh sách stores từ file (tương thích ngược)"""
     if os.path.exists(STORES_FILE):
         try:
             with open(STORES_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except:
+                raw = json.load(f)
+            if isinstance(raw, list):
+                normalized = {}
+                for s in raw:
+                    name = s.get('store_name') or s.get('name') or f"store_{s.get('id','')}"
+                    normalized[name] = {
+                        'store_name': s.get('store_name', name),
+                        'domain': s.get('domain'),
+                        'created_at': s.get('created_at'),
+                        'last_used': s.get('last_used'),
+                        'ga4_property_id': s.get('property_id') or s.get('ga4_property_id'),
+                        'ga4_credentials_content': s.get('credentials_content') or s.get('ga4_credentials_content'),
+                        'google_ads_customer_id': s.get('google_ads_customer_id'),
+                        'google_ads_developer_token': s.get('google_ads_developer_token'),
+                        'google_ads_client_id': s.get('google_ads_client_id'),
+                        'google_ads_client_secret': s.get('google_ads_client_secret'),
+                        'google_ads_refresh_token': s.get('google_ads_refresh_token'),
+                    }
+                # Ghi lại theo format mới
+                try:
+                    with open(STORES_FILE, 'w', encoding='utf-8') as wf:
+                        json.dump(normalized, wf, ensure_ascii=False, indent=2)
+                except Exception:
+                    pass
+                return normalized
+            elif isinstance(raw, dict):
+                return raw
+            else:
+                return {}
+        except Exception:
             return {}
     return {}
 
@@ -169,6 +197,12 @@ def main():
     st.header("📋 Danh sách Stores")
     
     stores = load_stores()
+    # Phòng lỗi: nếu file cũ trả về list thì chuyển tạm sang dict để hiển thị
+    if isinstance(stores, list):
+        try:
+            stores = { (s.get('store_name') or s.get('name') or f"store_{s.get('id','')}"): s for s in stores }
+        except Exception:
+            stores = {}
     
     if not stores:
         st.info("📝 Chưa có store nào. Hãy thêm store mới ở sidebar!")

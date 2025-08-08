@@ -22,12 +22,40 @@ st.set_page_config(
 )
 
 def load_stores():
-    """Tải danh sách stores từ file"""
-    if os.path.exists('stores_data.json'):
+    """Tải danh sách stores từ file (tương thích ngược)"""
+    path = 'stores_data.json'
+    if os.path.exists(path):
         try:
-            with open('stores_data.json', 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except:
+            with open(path, 'r', encoding='utf-8') as f:
+                raw = json.load(f)
+            if isinstance(raw, list):
+                normalized = {}
+                for s in raw:
+                    name = s.get('store_name') or s.get('name') or f"store_{s.get('id','')}"
+                    normalized[name] = {
+                        'store_name': s.get('store_name', name),
+                        'domain': s.get('domain'),
+                        'created_at': s.get('created_at'),
+                        'last_used': s.get('last_used'),
+                        'ga4_property_id': s.get('property_id') or s.get('ga4_property_id'),
+                        'ga4_credentials_content': s.get('credentials_content') or s.get('ga4_credentials_content'),
+                        'google_ads_customer_id': s.get('google_ads_customer_id'),
+                        'google_ads_developer_token': s.get('google_ads_developer_token'),
+                        'google_ads_client_id': s.get('google_ads_client_id'),
+                        'google_ads_client_secret': s.get('google_ads_client_secret'),
+                        'google_ads_refresh_token': s.get('google_ads_refresh_token'),
+                    }
+                try:
+                    with open(path, 'w', encoding='utf-8') as wf:
+                        json.dump(normalized, wf, ensure_ascii=False, indent=2)
+                except Exception:
+                    pass
+                return normalized
+            elif isinstance(raw, dict):
+                return raw
+            else:
+                return {}
+        except Exception:
             return {}
     return {}
 

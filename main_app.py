@@ -60,13 +60,44 @@ def main():
     st.markdown('<h1 class="main-header">📊 GA4 + Google Ads Analytics Tool</h1>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Phân tích toàn diện dữ liệu GA4 và Google Ads cho doanh nghiệp</p>', unsafe_allow_html=True)
     
-    # Load stores data
+    # Load stores data with backward-compatible normalization
     stores_data = {}
     if os.path.exists('stores_data.json'):
         try:
             with open('stores_data.json', 'r', encoding='utf-8') as f:
-                stores_data = json.load(f)
-        except:
+                raw = json.load(f)
+            # Normalize legacy list structure -> dict keyed by store_name
+            if isinstance(raw, list):
+                normalized = {}
+                for s in raw:
+                    name = s.get('store_name') or s.get('name') or f"store_{s.get('id','')}"
+                    normalized[name] = {
+                        'store_name': s.get('store_name', name),
+                        'domain': s.get('domain'),
+                        'created_at': s.get('created_at'),
+                        'last_used': s.get('last_used'),
+                        # GA4 keys mapping
+                        'ga4_property_id': s.get('property_id') or s.get('ga4_property_id'),
+                        'ga4_credentials_content': s.get('credentials_content') or s.get('ga4_credentials_content'),
+                        # Google Ads keys (if already present in file)
+                        'google_ads_customer_id': s.get('google_ads_customer_id'),
+                        'google_ads_developer_token': s.get('google_ads_developer_token'),
+                        'google_ads_client_id': s.get('google_ads_client_id'),
+                        'google_ads_client_secret': s.get('google_ads_client_secret'),
+                        'google_ads_refresh_token': s.get('google_ads_refresh_token'),
+                    }
+                stores_data = normalized
+                # Try to persist normalized structure for future runs
+                try:
+                    with open('stores_data.json', 'w', encoding='utf-8') as wf:
+                        json.dump(stores_data, wf, ensure_ascii=False, indent=2)
+                except Exception:
+                    pass
+            elif isinstance(raw, dict):
+                stores_data = raw
+            else:
+                stores_data = {}
+        except Exception:
             stores_data = {}
     
     # Statistics
