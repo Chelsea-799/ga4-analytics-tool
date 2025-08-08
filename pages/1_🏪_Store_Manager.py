@@ -68,10 +68,8 @@ def save_stores(stores):
         st.error(f"❌ Lỗi lưu file: {e}")
         return False
 
-def add_store(store_name, domain, ga4_property_id, ga4_credentials_content, 
-              ads_customer_id, ads_developer_token, ads_client_id, 
-              ads_client_secret, ads_refresh_token):
-    """Thêm store mới với cả GA4 và Google Ads"""
+def add_store(store_name, domain, ga4_property_id, ga4_credentials_content):
+    """Thêm store mới với chỉ GA4 (Google Ads dùng manual JSON import)"""
     stores = load_stores()
     
     # Kiểm tra trùng lặp
@@ -90,12 +88,12 @@ def add_store(store_name, domain, ga4_property_id, ga4_credentials_content,
         'ga4_property_id': ga4_property_id,
         'ga4_credentials_content': ga4_credentials_content,
         
-        # Google Ads Configuration
-        'google_ads_customer_id': ads_customer_id,
-        'google_ads_developer_token': ads_developer_token,
-        'google_ads_client_id': ads_client_id,
-        'google_ads_client_secret': ads_client_secret,
-        'google_ads_refresh_token': ads_refresh_token
+        # Google Ads: Không cần API config, chỉ dùng manual JSON import
+        'google_ads_customer_id': None,
+        'google_ads_developer_token': None,
+        'google_ads_client_id': None,
+        'google_ads_client_secret': None,
+        'google_ads_refresh_token': None
     }
     
     stores[store_name] = new_store
@@ -104,7 +102,6 @@ def add_store(store_name, domain, ga4_property_id, ga4_credentials_content,
         st.success(f"✅ Đã thêm store: {store_name}")
         return True
     else:
-        st.error("❌ Lỗi lưu store")
         return False
 
 def delete_store(store_name):
@@ -167,20 +164,15 @@ def main():
             ga4_property_id = st.text_input("🆔 GA4 Property ID", placeholder="495167329")
             ga4_credentials_file = st.file_uploader("📁 GA4 Credentials File", type=['json'], key="ga4_upload")
             
-            st.subheader("📢 Google Ads Configuration")
-            ads_customer_id = st.text_input("🆔 Google Ads Customer ID", placeholder="1234567890")
-            ads_developer_token = st.text_input("🔑 Developer Token", placeholder="ABC123DEF456")
-            ads_client_id = st.text_input("🆔 Client ID", placeholder="123456789-abcdef.apps.googleusercontent.com")
-            ads_client_secret = st.text_input("🔐 Client Secret", placeholder="GOCSPX-...")
-            ads_refresh_token = st.text_area("🔄 Refresh Token", placeholder="1//04d...", height=100)
+            st.info("💡 Google Ads: Không cần cấu hình API. Upload file JSON trực tiếp trong tab '📢 Google Ads Analyzer'")
             
             submitted = st.form_submit_button("➕ Thêm Store")
             
             if submitted:
                 if not store_name:
                     st.error("❌ Vui lòng nhập tên store")
-                elif not ga4_property_id and not ads_customer_id:
-                    st.error("❌ Vui lòng cấu hình ít nhất GA4 hoặc Google Ads")
+                elif not ga4_property_id:
+                    st.error("❌ Vui lòng cấu hình GA4")
                 else:
                     # Đọc nội dung file GA4 credentials
                     ga4_credentials_content = ""
@@ -188,9 +180,7 @@ def main():
                         ga4_credentials_content = ga4_credentials_file.getvalue().decode('utf-8')
                     
                     # Thêm store
-                    if add_store(store_name, domain, ga4_property_id, ga4_credentials_content,
-                               ads_customer_id, ads_developer_token, ads_client_id,
-                               ads_client_secret, ads_refresh_token):
+                    if add_store(store_name, domain, ga4_property_id, ga4_credentials_content):
                         st.rerun()
     
     # Main content - Danh sách stores
@@ -229,11 +219,9 @@ def main():
                     else:
                         st.warning("⚠️ GA4: Chưa cấu hình")
                     
-                    # Google Ads Status
-                    if store_data.get('google_ads_customer_id'):
-                        st.success("✅ Google Ads: Đã cấu hình")
-                    else:
-                        st.warning("⚠️ Google Ads: Chưa cấu hình")
+                    # Google Ads Status - Manual JSON import
+                    st.info("📢 Google Ads: Dùng manual JSON import (không cần API config)")
+                    st.markdown("💡 Upload file JSON trong tab '📢 Google Ads Analyzer'")
                 
                 with col2:
                     # Nút sử dụng store

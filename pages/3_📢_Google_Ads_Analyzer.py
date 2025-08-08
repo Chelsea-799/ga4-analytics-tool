@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Google Ads Analyzer - Phân tích dữ liệu Google Ads từ file JSON
+Google Ads Analyzer - Phân tích dữ liệu Google Ads từ Google Sheets tự động
 """
 
 import streamlit as st
@@ -11,7 +11,10 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import tempfile
-import numpy as np # Added for np.random.randint and np.random.uniform
+import numpy as np
+import gspread
+from google.oauth2.service_account import Credentials
+from google.oauth2 import service_account
 
 # Cấu hình trang
 st.set_page_config(
@@ -47,6 +50,10 @@ def get_ads_data_file(store_name):
     """Lấy file dữ liệu Google Ads cho store"""
     return f"data/google_ads_{store_name}.json"
 
+def get_google_sheets_config(store_name):
+    """Lấy cấu hình Google Sheets cho store"""
+    return f"data/sheets_config_{store_name}.json"
+
 def load_cursor(store_name):
     """Load cursor để track dữ liệu đã xử lý"""
     cursor_file = get_cursor_file(store_name)
@@ -70,8 +77,84 @@ def save_cursor(store_name, line_count):
         st.error(f"❌ Lỗi lưu cursor: {e}")
         return False
 
+def connect_google_sheets(credentials_content, spreadsheet_id, sheet_name):
+    """Kết nối Google Sheets và lấy dữ liệu"""
+    try:
+        # Tạo credentials từ JSON content
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.json') as tmp_file:
+            tmp_file.write(credentials_content.encode('utf-8'))
+            credentials_path = tmp_file.name
+        
+        # Kết nối Google Sheets
+        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        credentials = service_account.Credentials.from_service_account_file(credentials_path, scopes=scope)
+        client = gspread.authorize(credentials)
+        
+        # Mở spreadsheet và sheet
+        spreadsheet = client.open_by_key(spreadsheet_id)
+        worksheet = spreadsheet.worksheet(sheet_name)
+        
+        # Lấy tất cả dữ liệu
+        data = worksheet.get_all_records()
+        
+        # Xóa file tạm
+        os.unlink(credentials_path)
+        
+        return data
+        
+    except Exception as e:
+        st.error(f"❌ Lỗi kết nối Google Sheets: {e}")
+        return None
+
+def load_ads_data_from_sheets(store_name):
+    """Load dữ liệu Google Ads từ Google Sheets"""
+    config_file = get_google_sheets_config(store_name)
+    
+    if not os.path.exists(config_file):
+        st.warning(f"⚠️ Chưa có cấu hình Google Sheets: {config_file}")
+        return pd.DataFrame()
+    
+    try:
+        with open(config_file, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        # Kết nối và lấy dữ liệu từ Google Sheets
+        data = connect_google_sheets(
+            config['credentials_content'],
+            config['spreadsheet_id'],
+            config['sheet_name']
+        )
+        
+        if data is None:
+            return pd.DataFrame()
+        
+        # Convert thành DataFrame
+        df = pd.DataFrame(data)
+        
+        # Kiểm tra và xử lý dữ liệu mới
+        current_cursor = load_cursor(store_name)
+        if len(data) > current_cursor:
+            new_data_count = len(data) - current_cursor
+            st.success(f"🆕 Phát hiện {new_data_count} dòng dữ liệu mới từ Google Sheets!")
+            
+            # Cập nhật cursor
+            save_cursor(store_name, len(data))
+        
+        return df
+        
+    except Exception as e:
+        st.error(f"❌ Lỗi load dữ liệu từ Google Sheets: {e}")
+        return pd.DataFrame()
+
 def load_ads_data(store_name):
-    """Load dữ liệu Google Ads từ file JSON"""
+    """Load dữ liệu Google Ads (ưu tiên Google Sheets, fallback JSON file)"""
+    # Thử load từ Google Sheets trước
+    df = load_ads_data_from_sheets(store_name)
+    
+    if not df.empty:
+        return df
+    
+    # Fallback: load từ JSON file
     data_file = get_ads_data_file(store_name)
     
     if not os.path.exists(data_file):
@@ -129,6 +212,27 @@ def load_ads_data(store_name):
     except Exception as e:
         st.error(f"❌ Lỗi load dữ liệu: {e}")
         return pd.DataFrame()
+
+def save_google_sheets_config(store_name, credentials_content, spreadsheet_id, sheet_name):
+    """Lưu cấu hình Google Sheets"""
+    config_file = get_google_sheets_config(store_name)
+    try:
+        os.makedirs(os.path.dirname(config_file), exist_ok=True)
+        
+        config = {
+            'credentials_content': credentials_content,
+            'spreadsheet_id': spreadsheet_id,
+            'sheet_name': sheet_name,
+            'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        
+        with open(config_file, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+        
+        return True
+    except Exception as e:
+        st.error(f"❌ Lỗi lưu cấu hình Google Sheets: {e}")
+        return False
 
 def analyze_ads_performance(df):
     """Phân tích hiệu suất Google Ads"""
@@ -234,9 +338,60 @@ def main():
         
         st.markdown("---")
         
-        # Upload file dữ liệu
-        st.subheader("📁 Upload dữ liệu Google Ads")
-        st.info("💡 Upload file JSON chứa dữ liệu Google Ads")
+        # Cấu hình Google Sheets
+        st.subheader("📊 Google Sheets Integration")
+        st.info("💡 Kết nối tự động với Google Sheets để sync dữ liệu")
+        
+        with st.expander("🔗 Cấu hình Google Sheets"):
+            st.markdown("""
+            **Quy trình tự động:**
+            1. **Google Ads** → Export to Google Sheets
+            2. **Looker Studio** → Google Ads connector → Google Sheets
+            3. **Tool** → Tự động đọc từ Google Sheets
+            """)
+            
+            # Form cấu hình Google Sheets
+            with st.form("google_sheets_config"):
+                st.markdown("**📋 Cấu hình Google Sheets:**")
+                
+                # Upload Google Sheets credentials
+                sheets_credentials = st.file_uploader(
+                    "📁 Google Sheets Credentials (JSON)",
+                    type=['json'],
+                    key="sheets_credentials"
+                )
+                
+                spreadsheet_id = st.text_input(
+                    "🆔 Spreadsheet ID",
+                    placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms",
+                    help="Lấy từ URL Google Sheets: https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit"
+                )
+                
+                sheet_name = st.text_input(
+                    "📄 Sheet Name",
+                    value="Sheet1",
+                    help="Tên sheet chứa dữ liệu"
+                )
+                
+                if st.form_submit_button("💾 Lưu cấu hình Google Sheets"):
+                    if sheets_credentials and spreadsheet_id and sheet_name:
+                        try:
+                            credentials_content = sheets_credentials.getvalue().decode('utf-8')
+                            
+                            if save_google_sheets_config(selected_store_name, credentials_content, spreadsheet_id, sheet_name):
+                                st.success("✅ Đã lưu cấu hình Google Sheets!")
+                                st.info("🔄 Tool sẽ tự động sync dữ liệu từ Google Sheets")
+                            else:
+                                st.error("❌ Lỗi lưu cấu hình")
+                        except Exception as e:
+                            st.error(f"❌ Lỗi xử lý credentials: {e}")
+                    else:
+                        st.error("❌ Vui lòng điền đầy đủ thông tin")
+        
+        # Upload file dữ liệu (fallback)
+        st.markdown("---")
+        st.subheader("📁 Upload dữ liệu (Fallback)")
+        st.info("💡 Upload file JSON nếu không dùng Google Sheets")
         
         uploaded_file = st.file_uploader(
             "Chọn file JSON",

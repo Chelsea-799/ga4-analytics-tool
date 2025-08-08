@@ -12,6 +12,9 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import tempfile
 import numpy as np
+import gspread
+from google.oauth2.service_account import Credentials
+from google.oauth2 import service_account
 
 # Cấu hình trang
 st.set_page_config(
@@ -47,6 +50,39 @@ def get_ads_data_file(store_name):
     """Lấy file dữ liệu Google Ads cho store"""
     return f"data/google_ads_{store_name}.json"
 
+def get_google_sheets_config(store_name):
+    """Lấy cấu hình Google Sheets cho store"""
+    return f"data/sheets_config_{store_name}.json"
+
+def connect_google_sheets(credentials_content, spreadsheet_id, sheet_name):
+    """Kết nối Google Sheets và lấy dữ liệu"""
+    try:
+        # Tạo credentials từ JSON content
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.json') as tmp_file:
+            tmp_file.write(credentials_content.encode('utf-8'))
+            credentials_path = tmp_file.name
+        
+        # Kết nối Google Sheets
+        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        credentials = service_account.Credentials.from_service_account_file(credentials_path, scopes=scope)
+        client = gspread.authorize(credentials)
+        
+        # Mở spreadsheet và sheet
+        spreadsheet = client.open_by_key(spreadsheet_id)
+        worksheet = spreadsheet.worksheet(sheet_name)
+        
+        # Lấy tất cả dữ liệu
+        data = worksheet.get_all_records()
+        
+        # Xóa file tạm
+        os.unlink(credentials_path)
+        
+        return data
+        
+    except Exception as e:
+        st.error(f"❌ Lỗi kết nối Google Sheets: {e}")
+        return None
+
 def load_ga4_data(store_name):
     """Load dữ liệu GA4 từ file JSON"""
     data_file = get_ga4_data_file(store_name)
@@ -69,8 +105,46 @@ def load_ga4_data(store_name):
         st.error(f"❌ Lỗi load dữ liệu GA4: {e}")
         return pd.DataFrame()
 
+def load_ads_data_from_sheets(store_name):
+    """Load dữ liệu Google Ads từ Google Sheets"""
+    config_file = get_google_sheets_config(store_name)
+    
+    if not os.path.exists(config_file):
+        st.warning(f"⚠️ Chưa có cấu hình Google Sheets: {config_file}")
+        return pd.DataFrame()
+    
+    try:
+        with open(config_file, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        # Kết nối và lấy dữ liệu từ Google Sheets
+        data = connect_google_sheets(
+            config['credentials_content'],
+            config['spreadsheet_id'],
+            config['sheet_name']
+        )
+        
+        if data is None:
+            return pd.DataFrame()
+        
+        # Convert thành DataFrame
+        df = pd.DataFrame(data)
+        
+        return df
+        
+    except Exception as e:
+        st.error(f"❌ Lỗi load dữ liệu từ Google Sheets: {e}")
+        return pd.DataFrame()
+
 def load_ads_data(store_name):
-    """Load dữ liệu Google Ads từ file JSON"""
+    """Load dữ liệu Google Ads (ưu tiên Google Sheets, fallback JSON file)"""
+    # Thử load từ Google Sheets trước
+    df = load_ads_data_from_sheets(store_name)
+    
+    if not df.empty:
+        return df
+    
+    # Fallback: load từ JSON file
     data_file = get_ads_data_file(store_name)
     
     if not os.path.exists(data_file):
@@ -467,7 +541,7 @@ def main():
                     st.download_button(
                         "📥 Combined JSON",
                         json_str,
-                        file_name=f"combined_{selected_store_name}_{datetime.now().strftime('%Y%m%d')}.json",
+                        file_name=f"combined_{selected_store_name}_{datetime.now().strftime('%Y%m%d')}.csv",
                         mime="application/json"
                     )
         

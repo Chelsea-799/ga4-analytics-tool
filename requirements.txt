@@ -1,14 +1,15 @@
 # Core dependencies with flexible versions
 streamlit>=1.25
 pandas>=1.3
+numpy>=1.21.0
 openai>=1.3
 google-analytics-data>=0.18.0
 google-auth>=2.23.0
 plotly>=5.10
 altair>=4.2
 python-dotenv
-google-ads>=22.0.0
 pyyaml>=6.0
+gspread>=5.10.0
 
 # Build dependencies
 pip>=23.0
