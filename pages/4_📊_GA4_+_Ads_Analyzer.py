@@ -15,6 +15,92 @@ import numpy as np
 import gspread
 from google.oauth2 import service_account
 import re
+from typing import Tuple
+
+# Cache helpers
+@st.cache_data(show_spinner=False, ttl=300)
+def cached_load_ga4(store_name: str):
+    return load_ga4_data(store_name)
+
+@st.cache_data(show_spinner=False, ttl=300)
+def cached_load_ads(store_name: str):
+    return load_ads_data(store_name)
+
+def normalize_ads_columns(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+    alias_map = {
+        'campaign': 'campaign',
+        'campaign name': 'campaign',
+        'impr.': 'impressions',
+        'impr': 'impressions',
+        'impressions': 'impressions',
+        'clicks': 'clicks',
+        'cost': 'cost',
+        'spend': 'cost',
+        'conversions': 'conversions',
+        'conv.': 'conversions',
+        'conv': 'conversions',
+        'conv. value': 'conversion_value',
+        'conversion value': 'conversion_value',
+        'value': 'conversion_value',
+        'ctr': 'ctr',
+        'avg. cpc': 'avg_cpc',
+        'avg cpc': 'avg_cpc',
+        'cpc': 'avg_cpc',
+        'date': 'date',
+    }
+    rename_map = {}
+    for c in df.columns:
+        key = str(c).strip().lower()
+        if key in alias_map:
+            rename_map[c] = alias_map[key]
+    df = df.rename(columns=rename_map)
+    return df
+
+def coerce_ads_numeric(df: pd.DataFrame) -> pd.DataFrame:
+    numeric_cols = ['impressions', 'clicks', 'cost', 'conversions', 'conversion_value', 'ctr', 'avg_cpc']
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+    return df
+
+def compute_campaign_summary(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+    df = normalize_ads_columns(df.copy())
+    df = coerce_ads_numeric(df)
+    if 'campaign' not in df.columns:
+        return pd.DataFrame()
+    grouped = df.groupby('campaign', dropna=False).agg({
+        'impressions': 'sum',
+        'clicks': 'sum',
+        'cost': 'sum',
+        'conversions': 'sum',
+        'conversion_value': 'sum'
+    }).reset_index()
+    if grouped.empty:
+        return grouped
+    grouped['ctr'] = (grouped['clicks'] / grouped['impressions'] * 100).replace([float('inf')], 0).fillna(0)
+    grouped['cpc'] = (grouped['cost'] / grouped['clicks']).replace([float('inf')], 0).fillna(0)
+    grouped['cpa'] = (grouped['cost'] / grouped['conversions']).replace([float('inf')], 0).fillna(0)
+    grouped['roas_ads'] = (grouped['conversion_value'] / grouped['cost']).replace([float('inf')], 0).fillna(0)
+    return grouped
+
+def infer_date_bounds(ga4_df: pd.DataFrame, ads_df: pd.DataFrame) -> Tuple[datetime, datetime]:
+    dates = []
+    for df in (ga4_df, ads_df):
+        if not df.empty and 'date' in df.columns:
+            try:
+                d = pd.to_datetime(df['date'])
+                dates.append(d.min())
+                dates.append(d.max())
+            except Exception:
+                pass
+    if not dates:
+        today = datetime.today()
+        return today, today
+    return min(dates), max(dates)
 
 # Cấu hình trang
 st.set_page_config(
@@ -474,6 +560,27 @@ def main():
         
         st.markdown("---")
         
+        # Bộ lọc dữ liệu + Reload
+        with st.expander("🗓️ Bộ lọc dữ liệu & Reload"):
+            # Nạp nhanh dữ liệu để suy đoán min/max ngày
+            tmp_ga4 = cached_load_ga4(selected_store_name)
+            tmp_ads = cached_load_ads(selected_store_name)
+            min_d, max_d = infer_date_bounds(tmp_ga4, tmp_ads)
+            if min_d == max_d:
+                # fallback 30 ngày gần nhất
+                max_d = datetime.today()
+                min_d = max_d - pd.Timedelta(days=30)
+            default_range = (min_d.date(), max_d.date())
+            date_range = st.date_input(
+                "Khoảng ngày phân tích",
+                value=default_range,
+                key="combined_date_range"
+            )
+            if st.button("🔄 Reload Google Ads từ Sheets (bỏ cache)"):
+                st.cache_data.clear()
+                st.success("✅ Đã xóa cache. Đang reload...")
+                st.rerun()
+
         # Tùy chọn: Fetch GA4 now (Cách A - tự động)
         if selected_store.get('ga4_property_id') and selected_store.get('ga4_credentials_content'):
             with st.expander("⚡ Fetch GA4 now (Cách A - tự động)"):
@@ -605,8 +712,24 @@ def main():
         st.header(f"📊 Phân tích kết hợp - {selected_store_name}")
         
         # Load dữ liệu
-        ga4_df = load_ga4_data(selected_store_name)
-        ads_df = load_ads_data(selected_store_name)
+        ga4_df = cached_load_ga4(selected_store_name)
+        ads_df = cached_load_ads(selected_store_name)
+
+        # Áp dụng lọc ngày nếu có
+        try:
+            selected_range = st.session_state.get('combined_date_range', None)
+        except Exception:
+            selected_range = None
+        if selected_range and isinstance(selected_range, (list, tuple)) and len(selected_range) == 2:
+            start_date, end_date = selected_range
+            if not ga4_df.empty and 'date' in ga4_df.columns:
+                ga4_df = ga4_df.copy()
+                ga4_df['date'] = pd.to_datetime(ga4_df['date'])
+                ga4_df = ga4_df[(ga4_df['date'] >= pd.to_datetime(start_date)) & (ga4_df['date'] <= pd.to_datetime(end_date))]
+            if not ads_df.empty and 'date' in ads_df.columns:
+                ads_df = ads_df.copy()
+                ads_df['date'] = pd.to_datetime(ads_df['date'])
+                ads_df = ads_df[(ads_df['date'] >= pd.to_datetime(start_date)) & (ads_df['date'] <= pd.to_datetime(end_date))]
         
         if not ga4_df.empty or not ads_df.empty:
             # Phân tích kết hợp
@@ -722,6 +845,30 @@ def main():
                     st.dataframe(ads_df, use_container_width=True)
                 else:
                     st.info("💡 Chưa có dữ liệu Google Ads")
+
+            # Tổng hợp theo Campaign
+            st.markdown("---")
+            st.subheader("🎯 Hiệu suất theo Campaign (ROAS/CPA)")
+            campaign_summary = compute_campaign_summary(ads_df)
+            if not campaign_summary.empty:
+                # Sắp xếp theo chi tiêu giảm dần
+                display_campaign = campaign_summary.sort_values('cost', ascending=False)
+                # Làm tròn một số cột
+                for c in ['ctr', 'cpc', 'cpa', 'roas_ads']:
+                    if c in display_campaign.columns:
+                        display_campaign[c] = display_campaign[c].astype(float).round(2)
+                st.dataframe(display_campaign, use_container_width=True)
+
+                # Download
+                csv_campaign = display_campaign.to_csv(index=False)
+                st.download_button(
+                    "📥 Tải Campaign Summary CSV",
+                    csv_campaign,
+                    file_name=f"campaign_summary_{selected_store_name}_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv"
+                )
+            else:
+                st.info("💡 Không có cột 'campaign' hoặc dữ liệu Ads trống")
             
             # Export options
             st.subheader("📥 Export dữ liệu")
