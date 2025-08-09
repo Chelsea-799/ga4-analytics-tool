@@ -176,6 +176,23 @@ def format_money(value: float, currency: str) -> str:
     # default USD
     return f"${amount:,.2f}"
 
+# JSON-safe conversion helpers
+def _to_python_scalar(value):
+    try:
+        import numpy as _np
+        if isinstance(value, _np.generic):
+            return value.item()
+    except Exception:
+        pass
+    return value
+
+def to_jsonable(obj):
+    if isinstance(obj, dict):
+        return {k: to_jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [to_jsonable(v) for v in obj]
+    return _to_python_scalar(obj)
+
 # Cấu hình trang
 st.set_page_config(
     page_title="GA4 + Ads Analyzer",
@@ -1046,11 +1063,11 @@ def main():
             
             with col3:
                 if not ga4_df.empty and not ads_df.empty:
-                    # Combined data
+                    # Combined data (JSON-safe)
                     combined_data = {
-                        'ga4': ga4_df.to_dict('records'),
-                        'ads': ads_df.to_dict('records'),
-                        'metrics': combined_metrics
+                        'ga4': to_jsonable(ga4_df.to_dict('records')),
+                        'ads': to_jsonable(ads_df.to_dict('records')),
+                        'metrics': to_jsonable(combined_metrics),
                     }
                     json_str = json.dumps(combined_data, indent=2, ensure_ascii=False)
                     st.download_button(
