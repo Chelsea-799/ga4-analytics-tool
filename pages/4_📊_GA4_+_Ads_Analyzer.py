@@ -9,11 +9,10 @@ import os
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
+from datetime import datetime
 import tempfile
 import numpy as np
 import gspread
-from google.oauth2.service_account import Credentials
 from google.oauth2 import service_account
 
 # Cấu hình trang
@@ -105,6 +104,28 @@ def load_ga4_data(store_name):
         st.error(f"❌ Lỗi load dữ liệu GA4: {e}")
         return pd.DataFrame()
 
+def save_ads_data_to_json(store_name, df):
+    """Lưu dữ liệu Google Ads vào JSON file để backup"""
+    if df.empty:
+        return False
+    
+    try:
+        data_file = get_ads_data_file(store_name)
+        os.makedirs(os.path.dirname(data_file), exist_ok=True)
+        
+        # Convert DataFrame to JSON
+        data = df.to_dict('records')
+        
+        with open(data_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        
+        st.success(f"✅ Đã lưu {len(data)} records vào {data_file}")
+        return True
+        
+    except Exception as e:
+        st.error(f"❌ Lỗi lưu JSON file: {e}")
+        return False
+
 def load_ads_data_from_sheets(store_name):
     """Load dữ liệu Google Ads từ Google Sheets"""
     config_file = get_google_sheets_config(store_name)
@@ -130,21 +151,64 @@ def load_ads_data_from_sheets(store_name):
         # Convert thành DataFrame
         df = pd.DataFrame(data)
         
+        # Auto save to JSON file
+        save_ads_data_to_json(store_name, df)
+        
         return df
         
     except Exception as e:
         st.error(f"❌ Lỗi load dữ liệu từ Google Sheets: {e}")
         return pd.DataFrame()
 
+def auto_import_json_files(store_name):
+    """Tự động import JSON files từ thư mục data/"""
+    import glob
+    
+    # Tìm tất cả JSON files cho store này
+    pattern = f"data/google_ads_{store_name}_*.json"
+    json_files = glob.glob(pattern)
+    
+    if not json_files:
+        return pd.DataFrame()
+    
+    # Lấy file mới nhất
+    latest_file = max(json_files, key=os.path.getctime)
+    
+    try:
+        with open(latest_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        df = pd.DataFrame(data)
+        
+        # Auto save vào file chính
+        main_file = get_ads_data_file(store_name)
+        os.makedirs(os.path.dirname(main_file), exist_ok=True)
+        
+        with open(main_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        
+        st.success(f"✅ Auto import: {len(data)} records từ {os.path.basename(latest_file)}")
+        return df
+        
+    except Exception as e:
+        st.error(f"❌ Lỗi auto import JSON: {e}")
+        return pd.DataFrame()
+
 def load_ads_data(store_name):
-    """Load dữ liệu Google Ads (ưu tiên Google Sheets, fallback JSON file)"""
+    """Load dữ liệu Google Ads (ưu tiên Google Sheets, fallback JSON file, auto import)"""
     # Thử load từ Google Sheets trước
     df = load_ads_data_from_sheets(store_name)
     
     if not df.empty:
         return df
     
-    # Fallback: load từ JSON file
+    # Thử auto import JSON files
+    df = auto_import_json_files(store_name)
+    
+    if not df.empty:
+        return df
+    
+    # Fallback: load từ JSON file chính
     data_file = get_ads_data_file(store_name)
     
     if not os.path.exists(data_file):
@@ -294,17 +358,25 @@ def main():
             
             # Kiểm tra config
             ga4_property_id = selected_store.get('ga4_property_id') or selected_store.get('property_id')
-            ads_customer_id = selected_store.get('ads_customer_id')
-            
+
             if ga4_property_id:
                 st.info(f"🆔 GA4 Property ID: {ga4_property_id}")
             else:
                 st.warning("⚠️ Chưa có GA4 config")
-            
-            if ads_customer_id:
-                st.info(f"🆔 Ads Customer ID: {ads_customer_id}")
+
+            # Trạng thái Google Ads theo Sheets/JSON
+            config_file = get_google_sheets_config(selected_store_name)
+            data_file = get_ads_data_file(selected_store_name)
+
+            if os.path.exists(config_file):
+                st.success("✅ Google Sheets: Đã cấu hình")
             else:
-                st.warning("⚠️ Chưa có Google Ads config")
+                st.info("📄 Google Sheets: Chưa cấu hình")
+
+            if os.path.exists(data_file):
+                st.success("✅ Google Ads JSON: Có dữ liệu")
+            else:
+                st.info("📁 Google Ads JSON: Chưa có dữ liệu")
         else:
             st.warning("⚠️ Chưa có stores nào")
             st.info("💡 Vào Store Manager để thêm store")
@@ -541,7 +613,7 @@ def main():
                     st.download_button(
                         "📥 Combined JSON",
                         json_str,
-                        file_name=f"combined_{selected_store_name}_{datetime.now().strftime('%Y%m%d')}.csv",
+                        file_name=f"combined_{selected_store_name}_{datetime.now().strftime('%Y%m%d')}.json",
                         mime="application/json"
                     )
         

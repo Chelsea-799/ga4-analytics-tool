@@ -51,7 +51,7 @@ git push origin main
 3. **Click "New app"**
 4. **Chọn repository** và branch
 5. **Điền thông tin:**
-   - **Main file path:** `main_app.py`
+   - **Main file path:** `marketing_analytics_hub.py`
    - **App URL:** (tự động tạo)
 6. **Click "Deploy"**
 
@@ -175,7 +175,7 @@ GA4_PROPERTY_ID=123456789
    - **Name:** ga4-analytics-tool
    - **Environment:** Python 3
    - **Build Command:** `pip install -r requirements.txt`
-   - **Start Command:** `streamlit run main_app.py --server.port=$PORT --server.address=0.0.0.0`
+   - **Start Command:** `streamlit run marketing_analytics_hub.py --server.port=$PORT --server.address=0.0.0.0`
 
 ### Bước 3: Environment Variables
 1. **Vào service** đã tạo
@@ -199,14 +199,14 @@ GA4_PROPERTY_ID=123456789
 {
   "builds": [
     {
-      "src": "main_app.py",
+     "src": "marketing_analytics_hub.py",
       "use": "@vercel/python"
     }
   ],
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "main_app.py"
+     "dest": "marketing_analytics_hub.py"
     }
   ]
 }
@@ -258,7 +258,7 @@ python --version
 #### 2. "Port binding error"
 ```bash
 # Sử dụng $PORT environment variable
-streamlit run main_app.py --server.port=$PORT --server.address=0.0.0.0
+streamlit run marketing_analytics_hub.py --server.port=$PORT --server.address=0.0.0.0
 ```
 
 #### 3. "Environment variables not found"

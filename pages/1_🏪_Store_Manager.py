@@ -37,6 +37,7 @@ def load_stores():
                         'last_used': s.get('last_used'),
                         'ga4_property_id': s.get('property_id') or s.get('ga4_property_id'),
                         'ga4_credentials_content': s.get('credentials_content') or s.get('ga4_credentials_content'),
+                        # Giữ các trường Ads nếu có trong dữ liệu cũ để tương thích, không dùng trong runtime
                         'google_ads_customer_id': s.get('google_ads_customer_id'),
                         'google_ads_developer_token': s.get('google_ads_developer_token'),
                         'google_ads_client_id': s.get('google_ads_client_id'),
@@ -220,26 +221,39 @@ def main():
                         st.warning("⚠️ GA4: Chưa cấu hình")
                     
                     # Google Ads Status - Manual JSON import
-                    st.info("📢 Google Ads: Dùng manual JSON import (không cần API config)")
-                    st.markdown("💡 Upload file JSON trong tab '📢 Google Ads Analyzer'")
-                
                 with col2:
-                    # Nút sử dụng store
-                    if st.button("🚀 Sử dụng", key=f"use_{store_name}"):
-                        # Cập nhật thời gian sử dụng
-                        update_last_used(store_name)
-                        
-                        # Lưu thông tin vào session state
-                        st.session_state['selected_store'] = store_data
-                        
-                        st.success(f"✅ Đã chọn store: {store_name}")
-                        st.info("💡 Chuyển sang tab Analyzer để phân tích dữ liệu")
+                    # Trạng thái Google Ads theo Sheets/JSON
+                    sheets_config = f"data/sheets_config_{store_name}.json"
+                    ads_json_main = f"data/google_ads_{store_name}.json"
+                    import glob
+                    ads_json_any = glob.glob(f"data/google_ads_{store_name}_*.json")
+
+                    if os.path.exists(sheets_config):
+                        st.success("✅ Google Sheets: Đã cấu hình")
+                    else:
+                        st.info("📄 Google Sheets: Chưa cấu hình")
+
+                    if os.path.exists(ads_json_main) or ads_json_any:
+                        st.success("✅ Google Ads JSON: Có dữ liệu")
+                    else:
+                        st.info("📁 Google Ads JSON: Chưa có dữ liệu")
+                
+                # Nút sử dụng store
+                if st.button("🚀 Sử dụng", key=f"use_{store_name}"):
+                    # Cập nhật thời gian sử dụng
+                    update_last_used(store_name)
                     
-                    # Nút xóa store
-                    if st.button("🗑️ Xóa", key=f"delete_{store_name}"):
-                        if delete_store(store_name):
-                            st.rerun()
-        
+                    # Lưu thông tin vào session state
+                    st.session_state['selected_store'] = store_data
+                    
+                    st.success(f"✅ Đã chọn store: {store_name}")
+                    st.info("💡 Chuyển sang tab Analyzer để phân tích dữ liệu")
+                
+                # Nút xóa store
+                if st.button("🗑️ Xóa", key=f"delete_{store_name}"):
+                    if delete_store(store_name):
+                        st.rerun()
+    
         # Thống kê
         st.markdown("---")
         col1, col2, col3, col4 = st.columns(4)
@@ -249,8 +263,19 @@ def main():
             ga4_count = sum(1 for store in stores.values() if store.get('ga4_property_id'))
             st.metric("📈 GA4 Properties", ga4_count)
         with col3:
-            ads_count = sum(1 for store in stores.values() if store.get('google_ads_customer_id'))
-            st.metric("📢 Google Ads", ads_count)
+            # Đếm theo Sheets/JSON thay vì API
+            ads_count = 0
+            for name in stores.keys():
+                if os.path.exists(f"data/sheets_config_{name}.json"):
+                    ads_count += 1
+                    continue
+                if os.path.exists(f"data/google_ads_{name}.json"):
+                    ads_count += 1
+                    continue
+                import glob
+                if glob.glob(f"data/google_ads_{name}_*.json"):
+                    ads_count += 1
+            st.metric("📢 Google Ads (Sheets/JSON)", ads_count)
         with col4:
             used_stores = sum(1 for store in stores.values() if store.get('last_used'))
             st.metric("🚀 Stores đã sử dụng", used_stores)
@@ -263,18 +288,17 @@ def main():
     ### 🔧 Cách thêm store:
     1. **Nhập thông tin cơ bản**: Tên store, domain
     2. **Cấu hình GA4**: Property ID + credentials file
-    3. **Cấu hình Google Ads**: Customer ID + tokens
-    4. **Nhấn "Thêm Store"** để lưu
-    
+    3. **Google Ads**: KHÔNG cần API. Dữ liệu được lấy qua **Google Sheets** hoặc **upload JSON** tại trang "📢 Google Ads Analyzer".
+
     ### 🚀 Cách sử dụng store:
     1. **Chọn store** từ danh sách bên trên
     2. **Nhấn "Sử dụng"** để chọn store
     3. **Chuyển sang Analyzer** để phân tích dữ liệu
-    
+
     ### 📁 File lưu trữ:
     - Thông tin stores được lưu trong file `stores_data.json`
-    - Credentials được mã hóa và lưu an toàn
-    - Có thể backup/restore file này để chuyển dữ liệu
+    - Config Google Sheets lưu tại `data/sheets_config_{store}.json`
+    - Dữ liệu Ads lưu tại `data/google_ads_{store}.json` hoặc `data/google_ads_{store}_*.json`
     """)
     
     # Export/Import functionality

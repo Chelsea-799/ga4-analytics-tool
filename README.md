@@ -68,14 +68,14 @@ cd analytics_tool
 pip install -r requirements.txt
 
 # Chạy ứng dụng
-streamlit run main_app.py
+streamlit run marketing_analytics_hub.py
 ```
 
 ## 📁 Cấu trúc Project
 
 ```
 analytics_tool/
-├── main_app.py                    # 🏠 Trang chủ
+├── marketing_analytics_hub.py     # 🏠 Trang chủ (entry)
 ├── pages/
 │   ├── 1_🏪_Store_Manager.py     # 🏪 Quản lý stores
 │   └── 2_🔍_GA4_Analyzer.py     # 🔍 Phân tích GA4

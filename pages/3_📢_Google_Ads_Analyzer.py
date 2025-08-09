@@ -9,11 +9,10 @@ import os
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
+from datetime import datetime
 import tempfile
 import numpy as np
 import gspread
-from google.oauth2.service_account import Credentials
 from google.oauth2 import service_account
 
 # Cấu hình trang
@@ -34,7 +33,8 @@ def load_stores():
         if isinstance(stores_data, list):
             stores_dict = {}
             for store in stores_data:
-                stores_dict[store['store_name']] = store
+                name = store.get('store_name') or store.get('name') or f"store_{store.get('id','')}"
+                stores_dict[name] = store
             return stores_dict
         else:
             return stores_data
@@ -106,6 +106,28 @@ def connect_google_sheets(credentials_content, spreadsheet_id, sheet_name):
         st.error(f"❌ Lỗi kết nối Google Sheets: {e}")
         return None
 
+def save_ads_data_to_json(store_name, df):
+    """Lưu dữ liệu Google Ads vào JSON file để backup"""
+    if df.empty:
+        return False
+    
+    try:
+        data_file = get_ads_data_file(store_name)
+        os.makedirs(os.path.dirname(data_file), exist_ok=True)
+        
+        # Convert DataFrame to JSON
+        data = df.to_dict('records')
+        
+        with open(data_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        
+        st.success(f"✅ Đã lưu {len(data)} records vào {data_file}")
+        return True
+        
+    except Exception as e:
+        st.error(f"❌ Lỗi lưu JSON file: {e}")
+        return False
+
 def load_ads_data_from_sheets(store_name):
     """Load dữ liệu Google Ads từ Google Sheets"""
     config_file = get_google_sheets_config(store_name)
@@ -137,6 +159,9 @@ def load_ads_data_from_sheets(store_name):
             new_data_count = len(data) - current_cursor
             st.success(f"🆕 Phát hiện {new_data_count} dòng dữ liệu mới từ Google Sheets!")
             
+            # Auto save to JSON file
+            save_ads_data_to_json(store_name, df)
+            
             # Cập nhật cursor
             save_cursor(store_name, len(data))
         
@@ -146,44 +171,65 @@ def load_ads_data_from_sheets(store_name):
         st.error(f"❌ Lỗi load dữ liệu từ Google Sheets: {e}")
         return pd.DataFrame()
 
+def auto_import_json_files(store_name):
+    """Tự động import JSON files từ thư mục data/"""
+    import glob
+    
+    # Tìm tất cả JSON files cho store này
+    pattern = f"data/google_ads_{store_name}_*.json"
+    json_files = glob.glob(pattern)
+    
+    if not json_files:
+        return pd.DataFrame()
+    
+    # Lấy file mới nhất
+    latest_file = max(json_files, key=os.path.getctime)
+    
+    try:
+        with open(latest_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        df = pd.DataFrame(data)
+        
+        # Auto save vào file chính
+        main_file = get_ads_data_file(store_name)
+        os.makedirs(os.path.dirname(main_file), exist_ok=True)
+        
+        with open(main_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        
+        st.success(f"✅ Auto import: {len(data)} records từ {os.path.basename(latest_file)}")
+        return df
+        
+    except Exception as e:
+        st.error(f"❌ Lỗi auto import JSON: {e}")
+        return pd.DataFrame()
+
 def load_ads_data(store_name):
-    """Load dữ liệu Google Ads (ưu tiên Google Sheets, fallback JSON file)"""
+    """Load dữ liệu Google Ads (ưu tiên Google Sheets, fallback JSON file, auto import)"""
     # Thử load từ Google Sheets trước
     df = load_ads_data_from_sheets(store_name)
     
     if not df.empty:
         return df
     
-    # Fallback: load từ JSON file
+    # Thử auto import JSON files
+    df = auto_import_json_files(store_name)
+    
+    if not df.empty:
+        return df
+    
+    # Fallback: load từ JSON file chính
     data_file = get_ads_data_file(store_name)
     
     if not os.path.exists(data_file):
         st.warning(f"⚠️ Chưa có file dữ liệu: {data_file}")
-        st.info("💡 Hướng dẫn tạo file dữ liệu:")
+        st.info("💡 Khuyến nghị: cấu hình mục '📊 Google Sheets Integration' ở sidebar (dùng SyncWith) để tool tự sync, không cần JSON.")
         st.markdown("""
-        1. **Xuất dữ liệu từ Google Ads:**
-           - Vào Google Ads → Reports → Export to Google Sheets
-           - Hoặc: Tools → Bulk Actions → Export
-           
-        2. **Convert thành JSON:**
-           - Copy dữ liệu từ Google Sheets
-           - Convert thành format JSON
-           - Lưu vào file `data/google_ads_{store_name}.json`
-           
-        3. **Format JSON mẫu:**
-        ```json
-        [
-          {
-            "date": "2024-01-01",
-            "campaign": "Campaign Name",
-            "impressions": 1000,
-            "clicks": 50,
-            "cost": 100.50,
-            "conversions": 5,
-            "conversion_value": 500.00
-          }
-        ]
-        ```
+        **Nếu muốn dùng JSON (fallback):**
+        1. Xuất dữ liệu Google Ads ra Google Sheets (SyncWith/Export bất kỳ)
+        2. Tải về dạng JSON hoặc convert sang JSON
+        3. Upload file JSON tại sidebar hoặc đặt vào thư mục `data/` với tên `google_ads_{store_name}_*.json` để tool tự import
         """)
         return pd.DataFrame()
     
@@ -195,19 +241,7 @@ def load_ads_data(store_name):
             st.warning("⚠️ File dữ liệu trống")
             return pd.DataFrame()
         
-        # Convert thành DataFrame
-        df = pd.DataFrame(data)
-        
-        # Kiểm tra và xử lý dữ liệu mới
-        current_cursor = load_cursor(store_name)
-        if len(data) > current_cursor:
-            new_data_count = len(data) - current_cursor
-            st.success(f"🆕 Phát hiện {new_data_count} dòng dữ liệu mới!")
-            
-            # Cập nhật cursor
-            save_cursor(store_name, len(data))
-        
-        return df
+        return pd.DataFrame(data)
         
     except Exception as e:
         st.error(f"❌ Lỗi load dữ liệu: {e}")
@@ -323,12 +357,19 @@ def main():
             selected_store = stores[selected_store_name]
             st.success(f"✅ Store: {selected_store_name}")
             
-            # Kiểm tra Google Ads config
-            ads_customer_id = selected_store.get('ads_customer_id')
-            if ads_customer_id:
-                st.info(f"🆔 Customer ID: {ads_customer_id}")
+            # Trạng thái Google Ads dựa trên Sheets/JSON (không dùng API)
+            config_file = get_google_sheets_config(selected_store_name)
+            data_file = get_ads_data_file(selected_store_name)
+
+            if os.path.exists(config_file):
+                st.success("✅ Google Sheets: Đã cấu hình")
             else:
-                st.warning("⚠️ Chưa có Google Ads config")
+                st.info("📄 Google Sheets: Chưa cấu hình")
+
+            if os.path.exists(data_file):
+                st.success(f"✅ JSON: Có dữ liệu ({os.path.basename(data_file)})")
+            else:
+                st.info("📁 JSON: Chưa có dữ liệu")
         else:
             st.warning("⚠️ Chưa có stores nào")
             st.info("💡 Vào Store Manager để thêm store")
@@ -344,10 +385,15 @@ def main():
         
         with st.expander("🔗 Cấu hình Google Sheets"):
             st.markdown("""
-            **Quy trình tự động:**
-            1. **Google Ads** → Export to Google Sheets
-            2. **Looker Studio** → Google Ads connector → Google Sheets
-            3. **Tool** → Tự động đọc từ Google Sheets
+            **Quy trình tự động (khuyến nghị SyncWith):**
+            1. **Google Ads** → Đồng bộ sang **Google Sheets** bằng công cụ như **SyncWith** (khuyến nghị) hoặc lịch export/connector bất kỳ.
+            2. **Tool** → Tự động đọc từ Google Sheets và tự lưu **JSON backup**.
+
+            **Checklist bắt buộc:**
+            - Chia sẻ Google Sheet cho email của Service Account.
+            - Hàng đầu là tiêu đề cột.
+            - Nên có các cột: `date`, `campaign`, `impressions`, `clicks`, `cost`, `conversions`, `conversion_value`.
+            - Bật lịch đồng bộ định kỳ trong SyncWith để dữ liệu luôn mới.
             """)
             
             # Form cấu hình Google Sheets
@@ -580,20 +626,12 @@ def main():
         else:
             st.info("💡 Chưa có dữ liệu Google Ads")
             st.markdown("""
-            **Hướng dẫn lấy dữ liệu:**
-            
-            1. **Từ Google Ads:**
-               - Vào Google Ads → Reports
-               - Chọn date range và metrics
-               - Export to Google Sheets
-            
-            2. **Convert thành JSON:**
-               - Copy dữ liệu từ Google Sheets
-               - Convert thành format JSON
-               - Upload file JSON ở sidebar
-            
-            3. **Hoặc dùng demo data:**
-               - Click "🎲 Tạo dữ liệu demo" ở sidebar
+            **Hướng dẫn lấy dữ liệu (khuyến nghị SyncWith):**
+            1. Dùng **SyncWith** để đồng bộ Google Ads → **Google Sheets** và chia sẻ sheet cho Service Account
+            2. Vào mục **📊 Google Sheets Integration** (sidebar) để nhập `Spreadsheet ID` + `Sheet Name`
+            3. Tool sẽ tự đọc và lưu **JSON backup** tự động
+
+            **Fallback:** Upload file **JSON** ở sidebar hoặc dùng nút **🎲 Tạo dữ liệu demo**
             """)
 
 if __name__ == "__main__":
