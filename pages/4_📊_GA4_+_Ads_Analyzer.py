@@ -915,7 +915,56 @@ def main():
                 
                 st.plotly_chart(fig, use_container_width=True)
                 
-                # Bảng so sánh
+                # Bảng đối sánh theo ngày (căn chỉnh hàng)
+                st.subheader("📋 Bảng đối sánh theo ngày (GA4 x Ads)")
+                comp_df = combined_daily.copy()
+                # Tính thêm CTR và Avg CPC cho Ads
+                comp_df['CTR (%)'] = (comp_df['clicks'] / comp_df['conversions'].replace(0, np.nan))
+                # Sửa: CTR = clicks / impressions; cần có impressions, nếu không, bỏ qua
+                if 'impressions' in ads_df.columns:
+                    ads_imp_daily = ads_df.groupby('date')['impressions'].sum().reset_index().rename(columns={'impressions': 'impressions_daily'})
+                    comp_df = comp_df.merge(ads_imp_daily, on='date', how='left')
+                    comp_df['CTR (%)'] = (comp_df['clicks'] / comp_df['impressions_daily'] * 100).replace([np.inf, -np.inf], 0).fillna(0)
+                else:
+                    comp_df['CTR (%)'] = 0
+                comp_df['Avg CPC'] = (comp_df['cost'] / comp_df['clicks']).replace([np.inf, -np.inf], 0).fillna(0)
+                comp_df['Date'] = comp_df['date'].dt.strftime('%Y-%m-%d')
+                # Chọn và định dạng cột
+                cols = [
+                    'Date',
+                    'totalUsers', 'sessions', 'screenPageViews', 'transactions', 'totalRevenue',
+                    'impressions_daily' if 'impressions_daily' in comp_df.columns else None,
+                    'clicks', 'CTR (%)', 'Avg CPC', 'cost', 'conversions'
+                ]
+                cols = [c for c in cols if c is not None and c in comp_df.columns]
+                disp = comp_df[cols].copy()
+                # Đổi tiêu đề cột
+                rename_cols = {
+                    'totalUsers': 'GA4 Users',
+                    'sessions': 'GA4 Sessions',
+                    'screenPageViews': 'GA4 PageViews',
+                    'transactions': 'GA4 Transactions',
+                    'totalRevenue': f'GA4 Revenue ({currency})',
+                    'impressions_daily': 'Ads Impressions',
+                    'clicks': 'Ads Clicks',
+                    'CTR (%)': 'Ads CTR (%)',
+                    'Avg CPC': f'Ads Avg CPC ({currency})',
+                    'cost': f'Ads Cost ({currency})',
+                    'conversions': 'Ads Conversions',
+                }
+                disp = disp.rename(columns=rename_cols)
+                # Định dạng tiền
+                if f'GA4 Revenue ({currency})' in disp.columns:
+                    disp[f'GA4 Revenue ({currency})'] = disp[f'GA4 Revenue ({currency})'].apply(lambda v: format_money(v, currency))
+                if f'Ads Cost ({currency})' in disp.columns:
+                    disp[f'Ads Cost ({currency})'] = disp[f'Ads Cost ({currency})'].apply(lambda v: format_money(v, currency))
+                if f'Ads Avg CPC ({currency})' in disp.columns:
+                    disp[f'Ads Avg CPC ({currency})'] = disp[f'Ads Avg CPC ({currency})'].apply(lambda v: format_money(v, currency))
+                if 'Ads CTR (%)' in disp.columns:
+                    disp['Ads CTR (%)'] = disp['Ads CTR (%)'].astype(float).round(2)
+                st.dataframe(disp, use_container_width=True)
+
+                # Bảng so sánh rút gọn
                 st.subheader("📋 Bảng so sánh chi tiết")
                 display_df = combined_daily.copy()
                 display_df['ROAS'] = (display_df['totalRevenue'] / display_df['cost']).fillna(0)
