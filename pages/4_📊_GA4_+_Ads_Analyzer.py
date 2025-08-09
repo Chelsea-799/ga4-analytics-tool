@@ -860,6 +860,13 @@ def main():
                 ads_df['date'] = pd.to_datetime(ads_df['date'])
                 ads_df = ads_df[(ads_df['date'] >= pd.to_datetime(start_date)) & (ads_df['date'] <= pd.to_datetime(end_date))]
         
+        # Chuẩn hóa đơn vị cost trước khi phân tích (để metrics hiển thị đúng)
+        if not ads_df.empty and st.session_state.get('ads_cost_thousands_vnd') and st.session_state.get('combined_currency', 'VND') == 'VND':
+            ads_df = ads_df.copy()
+            for col in ['cost', 'conversion_value']:
+                if col in ads_df.columns:
+                    ads_df[col] = pd.to_numeric(ads_df[col], errors='coerce').fillna(0) * 1000
+        
         if not ga4_df.empty or not ads_df.empty:
             # Phân tích kết hợp
             combined_metrics = analyze_combined_data(ga4_df, ads_df)
@@ -893,13 +900,6 @@ def main():
                 if combined_metrics.get('ads', {}).get('total_clicks'):
                     st.metric("🖱️ Clicks", f"{combined_metrics['ads']['total_clicks']:,}")
             
-            # Nếu cần nhân cost theo nghìn VND
-            if not ads_df.empty and st.session_state.get('ads_cost_thousands_vnd'):
-                ads_df = ads_df.copy()
-                for col in ['cost', 'conversion_value']:
-                    if col in ads_df.columns:
-                        ads_df[col] = pd.to_numeric(ads_df[col], errors='coerce').fillna(0) * 1000
-
             # Biểu đồ so sánh Revenue vs Cost
             if not ga4_df.empty and not ads_df.empty and 'date' in ga4_df.columns and 'date' in ads_df.columns:
                 st.subheader("📊 So sánh Revenue vs Cost theo thời gian")
