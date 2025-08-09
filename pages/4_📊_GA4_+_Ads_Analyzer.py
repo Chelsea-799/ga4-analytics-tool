@@ -875,6 +875,11 @@ def main():
                     'totalUsers': 'sum'
                 }).reset_index()
                 
+                # Đảm bảo cột ngày của Ads là 'date' và dạng datetime
+                if 'day' in ads_df.columns and 'date' not in ads_df.columns:
+                    ads_df = ads_df.rename(columns={'day': 'date'})
+                ads_df['date'] = pd.to_datetime(ads_df['date'])
+
                 ads_daily = ads_df.groupby('date').agg({
                     'cost': 'sum',
                     'clicks': 'sum',

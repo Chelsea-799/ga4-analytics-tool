@@ -123,6 +123,7 @@ def connect_google_sheets(credentials_content, spreadsheet_id, sheet_name):
         alias_map = {
             'date': 'date',
             'ngày': 'date',
+            'day': 'date',
             'campaign': 'campaign',
             'impr.': 'impressions',
             'impr': 'impressions',
@@ -218,8 +219,10 @@ def load_ads_data_from_sheets(store_name):
         if data is None:
             return pd.DataFrame()
         
-        # Convert thành DataFrame
+        # Convert thành DataFrame và chuẩn hóa cột ngày về 'date'
         df = pd.DataFrame(data)
+        if 'day' in df.columns and 'date' not in df.columns:
+            df = df.rename(columns={'day': 'date'})
 
         # Chuẩn hóa số liệu dạng chuỗi (tiền tệ, %, phân cách) → số
         def smart_to_float(x):
