@@ -49,6 +49,7 @@ def normalize_ads_columns(df: pd.DataFrame) -> pd.DataFrame:
         'avg cpc': 'avg_cpc',
         'cpc': 'avg_cpc',
         'date': 'date',
+        'day': 'date',
     }
     rename_map = {}
     for c in df.columns:
@@ -101,6 +102,65 @@ def infer_date_bounds(ga4_df: pd.DataFrame, ads_df: pd.DataFrame) -> Tuple[datet
         today = datetime.today()
         return today, today
     return min(dates), max(dates)
+
+def autofetch_ga4_timeseries(store_name: str, store: dict, days: int = 30) -> bool:
+    """Attempt to fetch GA4 basic timeseries and persist to data/ga4_{store}.json.
+    Returns True on success, False otherwise.
+    """
+    try:
+        cred_content = store.get('ga4_credentials_content') or store.get('credentials_content')
+        property_id = store.get('ga4_property_id') or store.get('property_id')
+        if not cred_content or not property_id:
+            return False
+        # Lazy imports to avoid heavy cost when unused
+        from google.analytics.data_v1beta import BetaAnalyticsDataClient
+        from google.analytics.data_v1beta.types import DateRange, Metric, Dimension, RunReportRequest
+        from google.oauth2 import service_account
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.json', mode='w') as tmp_file:
+            tmp_file.write(cred_content)
+            cred_path = tmp_file.name
+        try:
+            credentials = service_account.Credentials.from_service_account_file(cred_path)
+            client = BetaAnalyticsDataClient(credentials=credentials)
+            req = RunReportRequest(
+                property=f"properties/{property_id}",
+                dimensions=[Dimension(name="date")],
+                metrics=[
+                    Metric(name="totalUsers"),
+                    Metric(name="sessions"),
+                    Metric(name="screenPageViews"),
+                    Metric(name="transactions"),
+                    Metric(name="totalRevenue"),
+                ],
+                date_ranges=[DateRange(start_date=f"{days}daysAgo", end_date="today")],
+            )
+            resp = client.run_report(req)
+            rows = []
+            for r in resp.rows:
+                rows.append({
+                    "date": r.dimension_values[0].value,
+                    "totalUsers": int(r.metric_values[0].value or 0),
+                    "sessions": int(r.metric_values[1].value or 0),
+                    "screenPageViews": int(r.metric_values[2].value or 0),
+                    "transactions": int(r.metric_values[3].value or 0),
+                    "totalRevenue": float(r.metric_values[4].value or 0.0),
+                })
+            os.makedirs('data', exist_ok=True)
+            out_path = os.path.join('data', f"ga4_{store_name}.json")
+            with open(out_path, 'w', encoding='utf-8') as f:
+                import json as _json
+                _json.dump(rows, f, ensure_ascii=False, indent=2)
+            return True
+        finally:
+            try:
+                if 'cred_path' in locals() and os.path.exists(cred_path):
+                    os.unlink(cred_path)
+            except Exception:
+                pass
+    except Exception:
+        return False
 
 # Cấu hình trang
 st.set_page_config(
@@ -714,6 +774,16 @@ def main():
         # Load dữ liệu
         ga4_df = cached_load_ga4(selected_store_name)
         ads_df = cached_load_ads(selected_store_name)
+
+        # Nếu GA4 trống nhưng store đã có GA4 config -> tự fetch 30 ngày
+        if ga4_df.empty and selected_store.get('ga4_property_id') and selected_store.get('ga4_credentials_content'):
+            with st.spinner("📥 Đang tự động fetch GA4 30 ngày gần nhất..."):
+                if autofetch_ga4_timeseries(selected_store_name, selected_store, days=30):
+                    st.cache_data.clear()
+                    st.success("✅ Đã fetch GA4 và lưu JSON. Đang reload...")
+                    st.rerun()
+                else:
+                    st.warning("⚠️ Không thể tự fetch GA4. Vui lòng kiểm tra credentials hoặc thử lại.")
 
         # Áp dụng lọc ngày nếu có
         try:
