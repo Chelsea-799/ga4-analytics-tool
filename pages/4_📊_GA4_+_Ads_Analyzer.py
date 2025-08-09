@@ -856,7 +856,7 @@ def main():
             # Nếu cần nhân cost theo nghìn VND
             if not ads_df.empty and st.session_state.get('ads_cost_thousands_vnd'):
                 ads_df = ads_df.copy()
-                for col in ['cost', 'avg_cpc', 'conversion_value']:
+                for col in ['cost', 'conversion_value']:
                     if col in ads_df.columns:
                         ads_df[col] = pd.to_numeric(ads_df[col], errors='coerce').fillna(0) * 1000
 

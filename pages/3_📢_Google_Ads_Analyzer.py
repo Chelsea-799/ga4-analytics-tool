@@ -601,10 +601,10 @@ def main():
             # Áp dụng cấu hình 'nghìn VND' (nếu bật)
             if st.session_state.get("ads_currency", "VND") == "VND" and st.session_state.get("ads_cost_thousands_vnd"):
                 try:
-                    for col in ['cost', 'conversion_value', 'avg_cpc']:
+                    for col in ['cost', 'conversion_value']:
                         if col in df.columns:
                             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0) * 1000
-                    st.info("🔧 Đã nhân 1.000 cho Cost/Avg CPC/Conv. value (đơn vị nghìn VND)")
+                    st.info("🔧 Đã nhân 1.000 cho Cost/Conv. value (đơn vị nghìn VND). Avg CPC giữ nguyên.")
                 except Exception:
                     pass
 
@@ -616,7 +616,7 @@ def main():
                     # Heuristic: nếu cost nhỏ (< 10000) và CPC nhỏ (< 50) thì nhiều khả năng đơn vị đang là nghìn VND
                     if max_cost < 10000 and (mean_cpc == 0 or mean_cpc < 50):
                         scale_note = "🔧 Phát hiện dữ liệu theo đơn vị nghìn VND. Đã nhân 1.000 để chuẩn hóa."
-                        for col in ['cost', 'conversion_value', 'avg_cpc']:
+                        for col in ['cost', 'conversion_value']:
                             if col in df.columns:
                                 df[col] = df[col] * 1000
                         st.info(scale_note)
