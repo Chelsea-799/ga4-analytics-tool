@@ -652,6 +652,8 @@ def main():
             )
             # Chọn tiền tệ hiển thị
             currency = st.selectbox("💱 Tiền tệ hiển thị", ["VND", "USD"], index=0, key="combined_currency")
+            # Tùy chọn: Cost nhập theo nghìn VND
+            st.checkbox("💵 Cost đơn vị nghìn VND (x1000)", value=True, key="ads_cost_thousands_vnd")
 
             if st.button("🔄 Reload Google Ads từ Sheets (bỏ cache)"):
                 st.cache_data.clear()
@@ -851,6 +853,13 @@ def main():
                 if combined_metrics.get('ads', {}).get('total_clicks'):
                     st.metric("🖱️ Clicks", f"{combined_metrics['ads']['total_clicks']:,}")
             
+            # Nếu cần nhân cost theo nghìn VND
+            if not ads_df.empty and st.session_state.get('ads_cost_thousands_vnd'):
+                ads_df = ads_df.copy()
+                for col in ['cost', 'avg_cpc', 'conversion_value']:
+                    if col in ads_df.columns:
+                        ads_df[col] = pd.to_numeric(ads_df[col], errors='coerce').fillna(0) * 1000
+
             # Biểu đồ so sánh Revenue vs Cost
             if not ga4_df.empty and not ads_df.empty and 'date' in ga4_df.columns and 'date' in ads_df.columns:
                 st.subheader("📊 So sánh Revenue vs Cost theo thời gian")

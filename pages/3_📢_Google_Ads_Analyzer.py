@@ -482,6 +482,13 @@ def main():
             help="Ảnh hưởng đến format số liệu (Cost, CPC, Conversion value)"
         )
         st.session_state["ads_currency"] = currency
+        # Dữ liệu cost/avg CPC theo đơn vị nghìn VND
+        st.checkbox(
+            "💵 Cost đơn vị nghìn VND (x1000)",
+            value=True,
+            key="ads_cost_thousands_vnd",
+            help="Nếu dữ liệu từ Sheets đang tính theo nghìn VND, bật mục này để nhân 1.000 cho Cost/Avg CPC/Conv. value."
+        )
         
         # Cấu hình Google Sheets
         st.subheader("📊 Google Sheets Integration")
@@ -588,19 +595,27 @@ def main():
         df = load_ads_data(selected_store_name)
         
         if not df.empty:
-            # Chuẩn hóa đơn vị tiền tệ về VND nếu dữ liệu đang ở đơn vị nghìn (k)
-            if st.session_state.get("ads_currency", "VND") == "VND" and 'cost' in df.columns:
+            # Áp dụng cấu hình 'nghìn VND' (nếu bật)
+            if st.session_state.get("ads_currency", "VND") == "VND" and st.session_state.get("ads_cost_thousands_vnd"):
+                try:
+                    for col in ['cost', 'conversion_value', 'avg_cpc']:
+                        if col in df.columns:
+                            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0) * 1000
+                    st.info("🔧 Đã nhân 1.000 cho Cost/Avg CPC/Conv. value (đơn vị nghìn VND)")
+                except Exception:
+                    pass
+
+            # Heuristic (fallback) nếu không bật tùy chọn
+            if st.session_state.get("ads_currency", "VND") == "VND" and 'cost' in df.columns and not st.session_state.get("ads_cost_thousands_vnd"):
                 try:
                     max_cost = float(df['cost'].replace([np.inf, -np.inf], np.nan).dropna().max())
                     mean_cpc = float(df['avg_cpc'].replace([np.inf, -np.inf], np.nan).dropna().mean()) if 'avg_cpc' in df.columns else 0
                     # Heuristic: nếu cost nhỏ (< 10000) và CPC nhỏ (< 50) thì nhiều khả năng đơn vị đang là nghìn VND
                     if max_cost < 10000 and (mean_cpc == 0 or mean_cpc < 50):
                         scale_note = "🔧 Phát hiện dữ liệu theo đơn vị nghìn VND. Đã nhân 1.000 để chuẩn hóa."
-                        df['cost'] = df['cost'] * 1000
-                        if 'conversion_value' in df.columns:
-                            df['conversion_value'] = df['conversion_value'] * 1000
-                        if 'avg_cpc' in df.columns:
-                            df['avg_cpc'] = df['avg_cpc'] * 1000
+                        for col in ['cost', 'conversion_value', 'avg_cpc']:
+                            if col in df.columns:
+                                df[col] = df[col] * 1000
                         st.info(scale_note)
                 except Exception:
                     pass
