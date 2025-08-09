@@ -162,6 +162,20 @@ def autofetch_ga4_timeseries(store_name: str, store: dict, days: int = 30) -> bo
     except Exception:
         return False
 
+# Currency helpers
+def format_money(value: float, currency: str) -> str:
+    try:
+        amount = float(value)
+    except Exception:
+        amount = 0.0
+    if currency.upper() == 'VND':
+        # VND thường không có phần thập phân
+        txt = f"{int(round(amount)):,}"
+        txt = txt.replace(',', '.')
+        return f"{txt} ₫"
+    # default USD
+    return f"${amount:,.2f}"
+
 # Cấu hình trang
 st.set_page_config(
     page_title="GA4 + Ads Analyzer",
@@ -636,6 +650,9 @@ def main():
                 value=default_range,
                 key="combined_date_range"
             )
+            # Chọn tiền tệ hiển thị
+            currency = st.selectbox("💱 Tiền tệ hiển thị", ["VND", "USD"], index=0, key="combined_currency")
+
             if st.button("🔄 Reload Google Ads từ Sheets (bỏ cache)"):
                 st.cache_data.clear()
                 st.success("✅ Đã xóa cache. Đang reload...")
@@ -812,15 +829,15 @@ def main():
             
             with col1:
                 if combined_metrics.get('ga4', {}).get('total_revenue'):
-                    st.metric("💰 Revenue (GA4)", f"${combined_metrics['ga4']['total_revenue']:,.2f}")
+                    st.metric("💰 Revenue (GA4)", format_money(combined_metrics['ga4']['total_revenue'], currency))
                 if combined_metrics.get('ads', {}).get('total_cost'):
-                    st.metric("💸 Cost (Ads)", f"${combined_metrics['ads']['total_cost']:,.2f}")
+                    st.metric("💸 Cost (Ads)", format_money(combined_metrics['ads']['total_cost'], currency))
             
             with col2:
                 if combined_metrics.get('combined', {}).get('roas'):
                     st.metric("💎 ROAS", f"{combined_metrics['combined']['roas']:.2f}x")
                 if combined_metrics.get('combined', {}).get('cost_per_conversion'):
-                    st.metric("🎯 Cost/Conv", f"${combined_metrics['combined']['cost_per_conversion']:.2f}")
+                    st.metric("🎯 Cost/Conv", format_money(combined_metrics['combined']['cost_per_conversion'], currency))
             
             with col3:
                 if combined_metrics.get('combined', {}).get('conversion_rate'):
@@ -878,7 +895,7 @@ def main():
                 fig.update_layout(
                     title="Revenue vs Cost Trend",
                     xaxis_title="Ngày",
-                    yaxis_title="Amount ($)",
+                    yaxis_title=f"Amount ({currency})",
                     hovermode='x unified'
                 )
                 
@@ -892,9 +909,9 @@ def main():
                 
                 display_columns = ['Date', 'totalRevenue', 'cost', 'ROAS', 'transactions', 'conversions']
                 display_df = display_df[display_columns]
-                display_df.columns = ['Ngày', 'Revenue ($)', 'Cost ($)', 'ROAS', 'Transactions', 'Conversions']
-                display_df['Revenue ($)'] = display_df['Revenue ($)'].round(2)
-                display_df['Cost ($)'] = display_df['Cost ($)'].round(2)
+                display_df.columns = ['Ngày', f'Revenue ({currency})', f'Cost ({currency})', 'ROAS', 'Transactions', 'Conversions']
+                display_df[f'Revenue ({currency})'] = display_df[f'Revenue ({currency})'].round(2)
+                display_df[f'Cost ({currency})'] = display_df[f'Cost ({currency})'].round(2)
                 display_df['ROAS'] = display_df['ROAS'].round(2)
                 
                 st.dataframe(display_df, use_container_width=True)
