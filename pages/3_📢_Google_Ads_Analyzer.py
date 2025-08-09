@@ -472,6 +472,16 @@ def main():
             return
         
         st.markdown("---")
+
+        # Thiết lập tiền tệ hiển thị
+        st.subheader("💱 Tiền tệ hiển thị")
+        currency = st.selectbox(
+            "Chọn tiền tệ",
+            options=["VND", "USD"],
+            index=0,
+            help="Ảnh hưởng đến format số liệu (Cost, CPC, Conversion value)"
+        )
+        st.session_state["ads_currency"] = currency
         
         # Cấu hình Google Sheets
         st.subheader("📊 Google Sheets Integration")
@@ -578,8 +588,39 @@ def main():
         df = load_ads_data(selected_store_name)
         
         if not df.empty:
+            # Bộ lọc mốc thời gian (nếu có cột date)
+            if 'date' in df.columns:
+                try:
+                    df['date'] = pd.to_datetime(df['date'])
+                    min_date = df['date'].min().date()
+                    max_date = df['date'].max().date()
+                    start_date, end_date = st.date_input(
+                        "Khoảng ngày", (min_date, max_date),
+                        min_value=min_date, max_value=max_date
+                    )
+                    if start_date and end_date:
+                        df = df[(df['date'] >= pd.to_datetime(start_date)) & (df['date'] <= pd.to_datetime(end_date))]
+                        if df.empty:
+                            st.warning("⚠️ Không có dữ liệu trong khoảng ngày đã chọn")
+                            return
+                except Exception:
+                    pass
             # Hiển thị thống kê tổng quan
             metrics = analyze_ads_performance(df)
+
+            # Helpers format tiền tệ
+            def format_currency(value: float) -> str:
+                cur = st.session_state.get("ads_currency", "VND")
+                if cur == "VND":
+                    try:
+                        return f"{int(round(float(value))):,} ₫"
+                    except Exception:
+                        return f"{value} ₫"
+                else:
+                    try:
+                        return f"${float(value):,.2f}"
+                    except Exception:
+                        return f"${value}"
             
             col1, col2, col3, col4 = st.columns(4)
             
@@ -588,12 +629,12 @@ def main():
                 st.metric("🖱️ Clicks", f"{metrics['total_clicks']:,}")
             
             with col2:
-                st.metric("💰 Cost", f"${metrics['total_cost']:,.2f}")
+                st.metric("💰 Cost", format_currency(metrics['total_cost']))
                 st.metric("📊 CTR", f"{metrics['ctr']:.2f}%")
             
             with col3:
                 st.metric("🎯 Conversions", f"{metrics['total_conversions']:,}")
-                st.metric("💵 CPC", f"${metrics['cpc']:.2f}")
+                st.metric("💵 CPC", format_currency(metrics['cpc']))
             
             with col4:
                 st.metric("💎 ROAS", f"{metrics['roas']:.2f}x")
@@ -643,11 +684,12 @@ def main():
                     yaxis='y2'
                 ))
                 
+                cost_axis_title = "Cost (VND)" if st.session_state.get("ads_currency", "VND") == "VND" else "Cost ($)"
                 fig.update_layout(
                     title="Performance theo ngày",
                     xaxis_title="Ngày",
                     yaxis_title="Impressions/Clicks",
-                    yaxis2=dict(title="Cost ($)", overlaying="y", side="right"),
+                    yaxis2=dict(title=cost_axis_title, overlaying="y", side="right"),
                     hovermode='x unified'
                 )
                 
@@ -674,21 +716,49 @@ def main():
                 
                 # Hiển thị bảng
                 display_df = top_campaigns[['campaign', 'impressions', 'clicks', 'cost', 'CTR', 'CPC', 'ROAS']].copy()
-                display_df.columns = ['Campaign', 'Impressions', 'Clicks', 'Cost ($)', 'CTR (%)', 'CPC ($)', 'ROAS']
-                display_df['Cost ($)'] = display_df['Cost ($)'].round(2)
+                if st.session_state.get("ads_currency", "VND") == "VND":
+                    display_df.columns = ['Campaign', 'Impressions', 'Clicks', 'Cost (VND)', 'CTR (%)', 'CPC (VND)', 'ROAS']
+                    display_df['Cost (VND)'] = display_df['Cost (VND)'].round(0)
+                    display_df['CPC (VND)'] = display_df['CPC (VND)'].round(0)
+                else:
+                    display_df.columns = ['Campaign', 'Impressions', 'Clicks', 'Cost ($)', 'CTR (%)', 'CPC ($)', 'ROAS']
+                    display_df['Cost ($)'] = display_df['Cost ($)'].round(2)
                 display_df['CTR (%)'] = display_df['CTR (%)'].round(2)
-                display_df['CPC ($)'] = display_df['CPC ($)'].round(2)
+                if 'CPC ($)' in display_df.columns:
+                    display_df['CPC ($)'] = display_df['CPC ($)'].round(2)
                 display_df['ROAS'] = display_df['ROAS'].round(2)
                 
                 st.dataframe(display_df, use_container_width=True)
                 
-                # Biểu đồ top campaigns
-                fig = px.bar(
-                    top_campaigns,
-                    x='campaign',
-                    y='cost',
+                # Biểu đồ đường theo style Google Ads với nhãn giá trị
+                gads_blue = '#1a73e8'
+                def fmt_currency(v):
+                    cur = st.session_state.get("ads_currency", "VND")
+                    try:
+                        val = float(v)
+                    except Exception:
+                        return str(v)
+                    if cur == "VND":
+                        return f"{int(round(val)):,} ₫"
+                    return f"${val:,.0f}"
+
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=top_campaigns['campaign'],
+                    y=top_campaigns['cost'],
+                    mode='lines+markers+text',
+                    line=dict(color=gads_blue, width=3),
+                    marker=dict(size=8, color=gads_blue),
+                    text=[fmt_currency(v) for v in top_campaigns['cost']],
+                    textposition='top center',
+                    hovertemplate='<b>%{x}</b><br>Cost: %{text}<extra></extra>',
+                    name='Cost'
+                ))
+                fig.update_layout(
                     title="Top Campaigns by Cost",
-                    labels={'campaign': 'Campaign', 'cost': 'Cost ($)'}
+                    xaxis_title="Campaign",
+                    yaxis_title=("Cost (VND)" if st.session_state.get("ads_currency", "VND") == "VND" else "Cost ($)"),
+                    hovermode='x unified'
                 )
                 fig.update_xaxes(tickangle=45)
                 st.plotly_chart(fig, use_container_width=True)
