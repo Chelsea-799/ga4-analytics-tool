@@ -474,6 +474,64 @@ def main():
         
         st.markdown("---")
         
+        # Tùy chọn: Fetch GA4 now (Cách A - tự động)
+        if selected_store.get('ga4_property_id') and selected_store.get('ga4_credentials_content'):
+            with st.expander("⚡ Fetch GA4 now (Cách A - tự động)"):
+                fetch_days = st.slider("Số ngày", min_value=7, max_value=180, value=30)
+                if st.button("📥 Lấy dữ liệu GA4 và lưu JSON"):
+                    try:
+                        # Gọi GA4 API nhanh gọn tại đây
+                        from google.analytics.data_v1beta import BetaAnalyticsDataClient
+                        from google.analytics.data_v1beta.types import DateRange, Metric, Dimension, RunReportRequest
+                        from google.oauth2 import service_account
+                        import tempfile
+
+                        # Tạo file credentials tạm
+                        cred_content = selected_store['ga4_credentials_content']
+                        with tempfile.NamedTemporaryFile(delete=False, suffix='.json', mode='w') as tmp_file:
+                            tmp_file.write(cred_content)
+                            cred_path = tmp_file.name
+
+                        credentials = service_account.Credentials.from_service_account_file(cred_path)
+                        client = BetaAnalyticsDataClient(credentials=credentials)
+                        property_id = str(selected_store.get('ga4_property_id'))
+                        req = RunReportRequest(
+                            property=f"properties/{property_id}",
+                            dimensions=[Dimension(name="date")],
+                            metrics=[
+                                Metric(name="totalUsers"),
+                                Metric(name="sessions"),
+                                Metric(name="screenPageViews"),
+                                Metric(name="transactions"),
+                                Metric(name="totalRevenue"),
+                            ],
+                            date_ranges=[DateRange(start_date=f"{fetch_days}daysAgo", end_date="today")],
+                        )
+                        resp = client.run_report(req)
+                        rows = []
+                        for r in resp.rows:
+                            rows.append({
+                                "date": r.dimension_values[0].value,
+                                "totalUsers": int(r.metric_values[0].value or 0),
+                                "sessions": int(r.metric_values[1].value or 0),
+                                "screenPageViews": int(r.metric_values[2].value or 0),
+                                "transactions": int(r.metric_values[3].value or 0),
+                                "totalRevenue": float(r.metric_values[4].value or 0.0),
+                            })
+                        os.makedirs('data', exist_ok=True)
+                        out_path = os.path.join('data', f"ga4_{selected_store_name}.json")
+                        with open(out_path, 'w', encoding='utf-8') as f:
+                            json.dump(rows, f, ensure_ascii=False, indent=2)
+                        st.success(f"✅ Đã fetch và lưu GA4 vào {out_path}")
+                    except Exception as e:
+                        st.error(f"❌ Lỗi fetch GA4: {e}")
+                    finally:
+                        try:
+                            if 'cred_path' in locals() and os.path.exists(cred_path):
+                                os.unlink(cred_path)
+                        except Exception:
+                            pass
+
         # Upload files
         st.subheader("📁 Upload dữ liệu")
         

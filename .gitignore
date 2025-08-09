@@ -1,5 +1,31 @@
 # Python
 __pycache__/
+*.pyc
+
+# Streamlit secrets (do not commit)
+.streamlit/secrets.toml
+
+# Local env
+.env
+
+# Sensitive/local data
+stores_data.json
+store_credentials.pkl
+data/**
+*.pkl
+
+# Credentials
+*credentials*.json
+credentials.json
+
+# OS/Editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Python
+__pycache__/
 *.py[cod]
 *$py.class
 *.so

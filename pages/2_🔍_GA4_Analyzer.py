@@ -449,6 +449,17 @@ def main():
             df = fetch_product_performance(client, property_id, days)
             basic_df = fetch_basic_metrics(client, property_id, days)
             views_df = fetch_product_views(client, property_id, days)
+
+        # Tự động lưu dữ liệu GA4 (timeseries cơ bản) để trang kết hợp sử dụng
+        try:
+            if not basic_df.empty and store_name:
+                os.makedirs('data', exist_ok=True)
+                out_path = os.path.join('data', f"ga4_{store_name}.json")
+                with open(out_path, 'w', encoding='utf-8') as f:
+                    json.dump(basic_df.to_dict('records'), f, ensure_ascii=False, indent=2)
+                st.success(f"💾 Đã lưu GA4 timeseries vào {out_path}")
+        except Exception as e:
+            st.warning(f"⚠️ Không thể lưu GA4 JSON: {e}")
         
         # Hiển thị chỉ số cơ bản
         if not basic_df.empty:

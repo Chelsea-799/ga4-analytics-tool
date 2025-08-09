@@ -656,14 +656,11 @@ def main():
                 st.metric("💎 ROAS", f"{metrics['roas']:.2f}x")
                 st.metric("📈 Conv. Rate", f"{metrics['conversion_rate']:.2f}%")
             
-            # Biểu đồ performance theo thời gian
-            st.subheader("📈 Performance theo thời gian")
-            
+            # Biểu đồ theo ngày kiểu Google Ads: chọn tối đa 2 chỉ số
+            st.subheader("📈 Biểu đồ theo ngày (chọn chỉ số như Google Ads)")
+
             if 'date' in df.columns:
-                # Convert date column
                 df['date'] = pd.to_datetime(df['date'])
-                
-                # Group by date
                 daily_data = df.groupby('date').agg({
                     'impressions': 'sum',
                     'clicks': 'sum',
@@ -671,44 +668,93 @@ def main():
                     'conversions': 'sum',
                     'conversion_value': 'sum'
                 }).reset_index()
-                
-                # Tính CTR và CPC
+
                 daily_data['CTR'] = (daily_data['clicks'] / daily_data['impressions'] * 100).fillna(0)
-                daily_data['CPC'] = (daily_data['cost'] / daily_data['clicks']).fillna(0)
-                
-                # Biểu đồ line chart
+                daily_data['CPC'] = (daily_data['cost'] / daily_data['clicks']).replace([np.inf, -np.inf], 0).fillna(0)
+                daily_data['ROAS'] = (daily_data['conversion_value'] / daily_data['cost']).replace([np.inf, -np.inf], 0).fillna(0)
+                daily_data['ConvRate'] = (daily_data['conversions'] / daily_data['clicks'] * 100).replace([np.inf, -np.inf], 0).fillna(0)
+
+                metric_options = {
+                    'Impressions': ('impressions', 'count'),
+                    'Clicks': ('clicks', 'count'),
+                    'Cost': ('cost', 'currency'),
+                    'Conversions': ('conversions', 'count'),
+                    'Conv. value': ('conversion_value', 'currency'),
+                    'CTR': ('CTR', 'percent'),
+                    'Avg. CPC': ('CPC', 'currency'),
+                    'ROAS': ('ROAS', 'ratio'),
+                    'Conv. Rate': ('ConvRate', 'percent')
+                }
+                default_selection = ['Impressions', 'Cost']
+                selected = st.multiselect("Chọn tối đa 2 chỉ số", list(metric_options.keys()), default=default_selection)
+                if len(selected) > 2:
+                    st.warning("Vui lòng chọn tối đa 2 chỉ số. Đã lấy 2 chỉ số đầu tiên.")
+                    selected = selected[:2]
+                if len(selected) == 0:
+                    selected = default_selection
+
+                color_map = {
+                    'Impressions': '#1a73e8',
+                    'Clicks': '#ea4335',
+                    'Cost': '#fbbc05',
+                    'Conversions': '#34a853',
+                    'Conv. value': '#a142f4',
+                    'CTR': '#ff6d01',
+                    'Avg. CPC': '#12b5cb',
+                    'ROAS': '#ab47bc',
+                    'Conv. Rate': '#0b8043'
+                }
+
+                def axis_title(metric_name):
+                    _, mtype = metric_options[metric_name]
+                    if mtype == 'currency':
+                        return 'VND' if st.session_state.get('ads_currency', 'VND') == 'VND' else '$'
+                    if mtype == 'percent':
+                        return 'Rate (%)'
+                    if mtype == 'ratio':
+                        return 'Ratio (x)'
+                    return 'Count'
+
                 fig = go.Figure()
-                
-                fig.add_trace(go.Scatter(
-                    x=daily_data['date'],
-                    y=daily_data['impressions'],
-                    name='Impressions',
-                    yaxis='y'
-                ))
-                
-                fig.add_trace(go.Scatter(
-                    x=daily_data['date'],
-                    y=daily_data['clicks'],
-                    name='Clicks',
-                    yaxis='y'
-                ))
-                
-                fig.add_trace(go.Scatter(
-                    x=daily_data['date'],
-                    y=daily_data['cost'],
-                    name='Cost',
-                    yaxis='y2'
-                ))
-                
-                cost_axis_title = "Cost (VND)" if st.session_state.get("ads_currency", "VND") == "VND" else "Cost ($)"
+
+                def add_metric_trace(metric_name, axis):
+                    col, mtype = metric_options[metric_name]
+                    y_vals = daily_data[col]
+                    if mtype == 'currency':
+                        hover_vals = [format_currency(v) for v in y_vals]
+                    elif mtype == 'percent':
+                        hover_vals = [f"{v:.2f}%" for v in y_vals]
+                    elif mtype == 'ratio':
+                        hover_vals = [f"{v:.2f}x" for v in y_vals]
+                    else:
+                        hover_vals = [f"{int(v):,}" for v in y_vals]
+                    fig.add_trace(go.Scatter(
+                        x=daily_data['date'],
+                        y=y_vals,
+                        mode='lines+markers',
+                        name=metric_name,
+                        line=dict(color=color_map.get(metric_name, '#1a73e8'), width=3),
+                        marker=dict(size=6),
+                        yaxis=axis,
+                        hovertemplate='<b>%{x|%Y-%m-%d}</b><br>' + metric_name + ': %{text}<extra></extra>',
+                        text=hover_vals
+                    ))
+
+                add_metric_trace(selected[0], 'y')
+                if len(selected) >= 2:
+                    add_metric_trace(selected[1], 'y2')
+
+                y_title = axis_title(selected[0])
+                y2_title = axis_title(selected[1]) if len(selected) >= 2 else ''
+
                 fig.update_layout(
-                    title="Performance theo ngày",
-                    xaxis_title="Ngày",
-                    yaxis_title="Impressions/Clicks",
-                    yaxis2=dict(title=cost_axis_title, overlaying="y", side="right"),
+                    title='Performance theo ngày',
+                    xaxis_title='Ngày',
+                    yaxis_title=y_title,
+                    yaxis2=dict(title=y2_title, overlaying='y', side='right'),
                     hovermode='x unified'
                 )
-                
+
                 st.plotly_chart(fig, use_container_width=True)
             
             # Top campaigns
