@@ -14,6 +14,7 @@ import tempfile
 import numpy as np
 import gspread
 from google.oauth2 import service_account
+import re
 
 # Cấu hình trang
 st.set_page_config(
@@ -84,27 +85,94 @@ def connect_google_sheets(credentials_content, spreadsheet_id, sheet_name):
         with tempfile.NamedTemporaryFile(delete=False, suffix='.json') as tmp_file:
             tmp_file.write(credentials_content.encode('utf-8'))
             credentials_path = tmp_file.name
-        
-        # Kết nối Google Sheets
-        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        credentials = service_account.Credentials.from_service_account_file(credentials_path, scopes=scope)
+
+        # Kết nối Google Sheets với scopes chuẩn
+        scopes = [
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/drive',
+        ]
+        credentials = service_account.Credentials.from_service_account_file(credentials_path, scopes=scopes)
         client = gspread.authorize(credentials)
-        
-        # Mở spreadsheet và sheet
+
+        # Mở spreadsheet
         spreadsheet = client.open_by_key(spreadsheet_id)
-        worksheet = spreadsheet.worksheet(sheet_name)
-        
-        # Lấy tất cả dữ liệu
-        data = worksheet.get_all_records()
-        
-        # Xóa file tạm
-        os.unlink(credentials_path)
-        
-        return data
-        
+
+        # Cố mở worksheet theo tên, nếu không có thì fallback sheet đầu tiên
+        try:
+            worksheet = spreadsheet.worksheet(sheet_name)
+        except gspread.exceptions.WorksheetNotFound:
+            worksheet = spreadsheet.sheet1
+            st.warning(f"🔁 Không tìm thấy sheet '{sheet_name}'. Đã dùng sheet đầu tiên: '{worksheet.title}'.")
+
+        # Lấy toàn bộ values và tự xác định hàng header hợp lệ
+        values = worksheet.get_all_values()
+        if not values:
+            return []
+
+        # Tìm hàng header: ưu tiên hàng đầu có nhiều cột không rỗng và không trùng
+        header_row_idx = 0
+        for i, row in enumerate(values[:10]):
+            non_empty = [c for c in row if str(c).strip() != '']
+            if len(non_empty) >= 2 and len(set(map(lambda x: str(x).strip().lower(), non_empty))) == len(non_empty):
+                header_row_idx = i
+                break
+
+        raw_headers = values[header_row_idx]
+
+        # Chuẩn hóa tên cột về canonical
+        alias_map = {
+            'date': 'date',
+            'ngày': 'date',
+            'campaign': 'campaign',
+            'impr.': 'impressions',
+            'impr': 'impressions',
+            'impressions': 'impressions',
+            'clicks': 'clicks',
+            'cost': 'cost',
+            'spend': 'cost',
+            'conversions': 'conversions',
+            'conv. value': 'conversion_value',
+            'conversion value': 'conversion_value',
+            'value': 'conversion_value',
+            'ctr': 'ctr',
+            'avg. cpc': 'avg_cpc',
+            'cpc': 'avg_cpc'
+        }
+
+        def normalize_header(h):
+            key = str(h).strip().lower()
+            return alias_map.get(key, key)
+
+        headers = [normalize_header(h) if str(h).strip() else f"col_{idx+1}" for idx, h in enumerate(raw_headers)]
+
+        # Build records từ các dòng dữ liệu sau header
+        records = []
+        for row in values[header_row_idx+1:]:
+            if all(str(c).strip() == '' for c in row):
+                continue
+            padded = row + [''] * (len(headers) - len(row))
+            record = {headers[i]: padded[i] for i in range(len(headers))}
+            records.append(record)
+
+        return records
+
     except Exception as e:
-        st.error(f"❌ Lỗi kết nối Google Sheets: {e}")
+        # Gợi ý thêm khi gặp lỗi phổ biến
+        message = str(e)
+        if 'has not been used in project' in message or 'disabled' in message:
+            st.error("❌ Google Sheets API/Drive API chưa được bật cho project Service Account.")
+        elif 'The caller does not have permission' in message or 'Permission' in message:
+            st.error("❌ Service Account chưa được chia sẻ quyền Editor với Google Sheet này.")
+        else:
+            st.error(f"❌ Lỗi kết nối Google Sheets: {message}")
         return None
+    finally:
+        # Dọn file tạm nếu tồn tại
+        try:
+            if 'credentials_path' in locals() and os.path.exists(credentials_path):
+                os.unlink(credentials_path)
+        except Exception:
+            pass
 
 def save_ads_data_to_json(store_name, df):
     """Lưu dữ liệu Google Ads vào JSON file để backup"""
@@ -152,6 +220,32 @@ def load_ads_data_from_sheets(store_name):
         
         # Convert thành DataFrame
         df = pd.DataFrame(data)
+
+        # Chuẩn hóa số liệu dạng chuỗi (tiền tệ, %, phân cách) → số
+        def smart_to_float(x):
+            if isinstance(x, (int, float)):
+                return float(x)
+            s = str(x).strip()
+            if s == '':
+                return 0.0
+            s = re.sub(r'[^0-9,.-]', '', s)
+            if ',' in s and '.' in s:
+                if s.rfind(',') > s.rfind('.'):
+                    s = s.replace('.', '').replace(',', '.')
+                else:
+                    s = s.replace(',', '')
+            else:
+                if ',' in s:
+                    s = s.replace(',', '.')
+            try:
+                return float(s)
+            except Exception:
+                return 0.0
+
+        numeric_fields = ['impressions', 'clicks', 'cost', 'conversions', 'conversion_value', 'ctr', 'avg_cpc']
+        for col in numeric_fields:
+            if col in df.columns:
+                df[col] = df[col].apply(smart_to_float)
         
         # Kiểm tra và xử lý dữ liệu mới
         current_cursor = load_cursor(store_name)

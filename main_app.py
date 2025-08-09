@@ -1,5 +1,18 @@
 #!/usr/bin/env python3
 """
+Compatibility entrypoint for Streamlit Cloud
+- Some apps lock the main file path at creation time.
+- This thin wrapper calls the new entry module `marketing_analytics_hub.py`.
+"""
+
+from marketing_analytics_hub import main
+
+
+if __name__ == "__main__":
+    main()
+
+#!/usr/bin/env python3
+"""
 Marketing Analytics Hub - Entry Module
 """
 
