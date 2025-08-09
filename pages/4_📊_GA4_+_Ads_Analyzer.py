@@ -16,6 +16,8 @@ import gspread
 from google.oauth2 import service_account
 import re
 from typing import Tuple
+from datetime import date as _date_cls, datetime as _dt_cls
+import pandas as _pd
 
 # Cache helpers
 @st.cache_data(show_spinner=False, ttl=300)
@@ -182,14 +184,35 @@ def _to_python_scalar(value):
         import numpy as _np
         if isinstance(value, _np.generic):
             return value.item()
+        if isinstance(value, _np.datetime64):
+            try:
+                return _pd.Timestamp(value).isoformat()
+            except Exception:
+                return str(value)
     except Exception:
         pass
+    # Pandas Timestamp / NaT
+    try:
+        if isinstance(value, _pd.Timestamp):
+            if _pd.isna(value):
+                return None
+            return value.isoformat()
+    except Exception:
+        pass
+    # Native datetime/date
+    if isinstance(value, (_dt_cls, _date_cls)):
+        try:
+            return value.isoformat()
+        except Exception:
+            return str(value)
     return value
 
 def to_jsonable(obj):
     if isinstance(obj, dict):
         return {k: to_jsonable(v) for k, v in obj.items()}
     if isinstance(obj, list):
+        return [to_jsonable(v) for v in obj]
+    if isinstance(obj, set):
         return [to_jsonable(v) for v in obj]
     return _to_python_scalar(obj)
 
