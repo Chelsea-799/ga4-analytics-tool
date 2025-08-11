@@ -69,7 +69,24 @@ def save_stores(stores):
         st.error(f"❌ Lỗi lưu file: {e}")
         return False
 
-def add_store(store_name, domain, ga4_property_id, ga4_credentials_content):
+def add_store(
+    store_name,
+    domain,
+    ga4_property_id,
+    ga4_credentials_content,
+    product_count_api_url=None,
+    product_count_api_headers=None,
+    product_count_count_field=None,
+    product_count_header_key=None,
+    product_count_auth_type=None,
+    product_count_api_token=None,
+    product_count_client_id=None,
+    product_count_client_secret=None,
+    product_count_basic_user=None,
+    product_count_basic_pass=None,
+    product_count_woo_ck=None,
+    product_count_woo_cs=None,
+):
     """Thêm store mới với chỉ GA4 (Google Ads dùng manual JSON import)"""
     stores = load_stores()
     
@@ -94,7 +111,21 @@ def add_store(store_name, domain, ga4_property_id, ga4_credentials_content):
         'google_ads_developer_token': None,
         'google_ads_client_id': None,
         'google_ads_client_secret': None,
-        'google_ads_refresh_token': None
+        'google_ads_refresh_token': None,
+
+        # REST API (đếm số sản phẩm) - tuỳ chọn
+        'product_count_api_url': product_count_api_url,
+        'product_count_api_headers': product_count_api_headers,
+        'product_count_count_field': product_count_count_field,
+        'product_count_header_key': product_count_header_key,
+        'product_count_auth_type': product_count_auth_type,
+        'product_count_api_token': product_count_api_token,
+        'product_count_client_id': product_count_client_id,
+        'product_count_client_secret': product_count_client_secret,
+        'product_count_basic_user': product_count_basic_user,
+        'product_count_basic_pass': product_count_basic_pass,
+        'product_count_woo_ck': product_count_woo_ck,
+        'product_count_woo_cs': product_count_woo_cs,
     }
     
     stores[store_name] = new_store
@@ -161,19 +192,50 @@ def main():
             store_name = st.text_input("🏪 Tên store", placeholder="Ví dụ: Vinahomesvlas Store")
             domain = st.text_input("🌐 Domain website", placeholder="https://example.com")
             
-            st.subheader("📊 GA4 Configuration")
-            ga4_property_id = st.text_input("🆔 GA4 Property ID", placeholder="495167329")
+            st.subheader("📊 GA4 Configuration (tuỳ chọn)")
+            ga4_property_id = st.text_input("🆔 GA4 Property ID (optional)", placeholder="495167329")
             ga4_credentials_file = st.file_uploader("📁 GA4 Credentials File", type=['json'], key="ga4_upload")
             
-            st.info("💡 Google Ads: Không cần cấu hình API. Upload file JSON trực tiếp trong tab '📢 Google Ads Analyzer'")
+            st.info("💡 Google Ads: Không cần cấu hình API. Upload JSON trong tab '📢 Google Ads Analyzer'")
+
+            # REST API cho đếm số sản phẩm (cực gọn)
+            with st.expander("🔗 REST API sản phẩm"):
+                product_count_api_url = st.text_input(
+                    "API URL (GET) (tuỳ chọn)",
+                    placeholder="Để trống nếu dùng WooCommerce với CK/CS"
+                )
+                rest_domain = st.text_input("Domain", value=domain)
+                col_keys1, col_keys2 = st.columns(2)
+                with col_keys1:
+                    product_count_woo_ck = st.text_input("Woo CK", value="", type="password", help="consumer_key")
+                with col_keys2:
+                    product_count_woo_cs = st.text_input("Woo CS", value="", type="password", help="consumer_secret")
+                # Ẩn các tuỳ chọn nâng cao
+                product_count_api_headers = None
+                product_count_auth_type = None
+                product_count_api_token = None
+                product_count_client_id = None
+                product_count_client_secret = None
+                product_count_basic_user = None
+                product_count_basic_pass = None
+
+                col_api1, col_api2 = st.columns(2)
+                with col_api1:
+                    product_count_count_field = st.text_input(
+                        "Trường JSON số lượng",
+                        placeholder="count hoặc data.total hoặc total_count"
+                    )
+                with col_api2:
+                    product_count_header_key = st.text_input(
+                        "Header số lượng",
+                        placeholder="X-WP-Total"
+                    )
             
             submitted = st.form_submit_button("➕ Thêm Store")
             
             if submitted:
                 if not store_name:
                     st.error("❌ Vui lòng nhập tên store")
-                elif not ga4_property_id:
-                    st.error("❌ Vui lòng cấu hình GA4")
                 else:
                     # Đọc nội dung file GA4 credentials
                     ga4_credentials_content = ""
@@ -181,7 +243,24 @@ def main():
                         ga4_credentials_content = ga4_credentials_file.getvalue().decode('utf-8')
                     
                     # Thêm store
-                    if add_store(store_name, domain, ga4_property_id, ga4_credentials_content):
+                    if add_store(
+                        store_name,
+                        rest_domain or domain,
+                        ga4_property_id or None,
+                        ga4_credentials_content,
+                        product_count_api_url=product_count_api_url or None,
+                        product_count_api_headers=product_count_api_headers or None,
+                        product_count_count_field=product_count_count_field or None,
+                        product_count_header_key=product_count_header_key or None,
+                        product_count_auth_type=(product_count_auth_type if product_count_auth_type != "None" else None),
+                        product_count_api_token=product_count_api_token or None,
+                        product_count_client_id=product_count_client_id or None,
+                        product_count_client_secret=product_count_client_secret or None,
+                        product_count_basic_user=product_count_basic_user or None,
+                        product_count_basic_pass=product_count_basic_pass or None,
+                        product_count_woo_ck=product_count_woo_ck or None,
+                        product_count_woo_cs=product_count_woo_cs or None,
+                    ):
                         st.rerun()
     
     # Main content - Danh sách stores
@@ -198,6 +277,58 @@ def main():
     if not stores:
         st.info("📝 Chưa có store nào. Hãy thêm store mới ở sidebar!")
     else:
+        # Helper: fetch product count via REST (domain only)
+        @st.cache_data(ttl=600)
+        def _fetch_product_count(url_template: str, headers_txt: str | None, count_field: str | None, header_key: str | None, domain: str | None):
+            try:
+                import requests
+            except Exception:
+                return None
+            if not url_template:
+                return None
+            mapping = {
+                'domain': (domain or '').rstrip('/'),
+            }
+            try:
+                url = url_template.format(**mapping)
+            except Exception:
+                url = url_template
+            headers = {}
+            if headers_txt:
+                try:
+                    headers = json.loads(headers_txt)
+                except Exception:
+                    headers = {}
+            try:
+                resp = requests.get(url, headers=headers, timeout=10)
+                resp.raise_for_status()
+                # Auto-detect Woo header when not provided
+                _header = header_key
+                if not _header and ('/wp-json/wc/' in url.lower()):
+                    _header = 'X-WP-Total'
+                if _header:
+                    hv = resp.headers.get(_header)
+                    if hv is not None and str(hv).strip().isdigit():
+                        return int(hv)
+                data = resp.json()
+                path = (count_field or '').strip()
+                if path:
+                    cur = data
+                    for part in path.split('.'):
+                        if isinstance(cur, dict) and part in cur:
+                            cur = cur[part]
+                        else:
+                            cur = None
+                            break
+                    if isinstance(cur, (int, float)):
+                        return int(cur)
+                for key in ['count','total','total_count']:
+                    if isinstance(data, dict) and key in data and isinstance(data[key], (int, float)):
+                        return int(data[key])
+                return None
+            except Exception:
+                return None
+
         # Hiển thị danh sách stores
         for store_name, store_data in stores.items():
             with st.expander(f"🏪 {store_name} ({store_data['domain']})", expanded=False):
@@ -237,6 +368,60 @@ def main():
                         st.success("✅ Google Ads JSON: Có dữ liệu")
                     else:
                         st.info("📁 Google Ads JSON: Chưa có dữ liệu")
+
+                    # REST API sản phẩm - hiển thị trực tiếp số lượng nếu có (tự dựng URL cho Woo)
+                    auto_url = store_data.get('product_count_api_url')
+                    dom_val = (store_data.get('domain') or '').rstrip('/')
+                    if not auto_url and dom_val and store_data.get('product_count_woo_ck') and store_data.get('product_count_woo_cs'):
+                        base = dom_val
+                        if not base.startswith('http://') and not base.startswith('https://'):
+                            base = f'https://{base}'
+                        ck = store_data.get('product_count_woo_ck')
+                        cs = store_data.get('product_count_woo_cs')
+                        auto_url = f"{base}/wp-json/wc/v3/products?status=publish&per_page=1&consumer_key={ck}&consumer_secret={cs}"
+
+                    if auto_url:
+                        total_products = _fetch_product_count(
+                            auto_url,
+                            store_data.get('product_count_api_headers'),
+                            store_data.get('product_count_count_field'),
+                            store_data.get('product_count_header_key'),
+                            store_data.get('domain'),
+                        )
+                        if total_products is not None:
+                            st.success(f"✅ Products (REST): {total_products:,}")
+                        else:
+                            st.warning("⚠️ REST API sản phẩm: Không đọc được số lượng")
+                    else:
+                        st.caption("🔗 REST API sản phẩm: Chưa cấu hình")
+                
+                # Cập nhật REST API cho store đã tồn tại (không cần xoá)
+                with st.expander("✏️ Cập nhật REST API cho store này"):
+                    with st.form(f"edit_rest_{store_name}"):
+                        edit_domain = st.text_input("Domain", value=store_data.get('domain', ''))
+                        edit_api_url = st.text_input("API URL (GET) (tuỳ chọn)", value=store_data.get('product_count_api_url') or "")
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            edit_woo_ck = st.text_input("Woo CK", value=store_data.get('product_count_woo_ck') or "", type="password")
+                        with c2:
+                            edit_woo_cs = st.text_input("Woo CS", value=store_data.get('product_count_woo_cs') or "", type="password")
+                        c3, c4 = st.columns(2)
+                        with c3:
+                            edit_count_field = st.text_input("Trường JSON số lượng", value=store_data.get('product_count_count_field') or "")
+                        with c4:
+                            edit_header_key = st.text_input("Header số lượng", value=store_data.get('product_count_header_key') or "")
+                        if st.form_submit_button("💾 Lưu REST API"):
+                            stores = load_stores()
+                            if store_name in stores:
+                                stores[store_name]['domain'] = edit_domain
+                                stores[store_name]['product_count_api_url'] = edit_api_url or None
+                                stores[store_name]['product_count_woo_ck'] = edit_woo_ck or None
+                                stores[store_name]['product_count_woo_cs'] = edit_woo_cs or None
+                                stores[store_name]['product_count_count_field'] = edit_count_field or None
+                                stores[store_name]['product_count_header_key'] = edit_header_key or None
+                                if save_stores(stores):
+                                    st.success("✅ Đã lưu. Mở lại danh sách để xem số sản phẩm.")
+                                    st.rerun()
                 
                 # Nút sử dụng store
                 if st.button("🚀 Sử dụng", key=f"use_{store_name}"):

@@ -6,7 +6,8 @@ Marketing Analytics Hub - Entry Module
 import streamlit as st
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
+import tempfile
 
 # Page config
 st.set_page_config(
@@ -100,6 +101,18 @@ def main():
         except Exception:
             stores_data = {}
     
+    # Date range for REST product counts
+    try:
+        today = datetime.now().date()
+        default_start = (today - timedelta(days=29))
+        default_end = today
+        start_date, end_date = st.date_input(
+            "Khoảng ngày cho số lượng sản phẩm (REST)",
+            (default_start, default_end),
+        )
+    except Exception:
+        start_date, end_date = None, None
+
     # Statistics
     col1, col2, col3, col4 = st.columns(4)
     
@@ -177,6 +190,95 @@ def main():
     st.markdown("---")
     st.markdown("## 📋 Hoạt động gần đây:")
     
+    # Only REST API-based product counts are supported (no catalog JSON/Sheets)
+
+    @st.cache_data(ttl=600)
+    def fetch_product_count_via_rest(
+        url_template: str,
+        headers_txt: str | None,
+        count_field_path: str | None,
+        header_key: str | None,
+        domain_value: str | None,
+        start_date_str: str | None,
+        end_date_str: str | None,
+        auth_type: str | None,
+        token: str | None,
+        client_id: str | None,
+        client_secret: str | None,
+        basic_user: str | None,
+        basic_pass: str | None,
+    ) -> int | None:
+        try:
+            import requests  # local import to avoid hard dep if unused
+        except Exception:
+            return None
+        if not url_template:
+            return None
+
+        # Build URL with optional placeholders
+        mapping = {
+            'domain': (domain_value or '').rstrip('/'),
+            'start_date': start_date_str or '',
+            'end_date': end_date_str or '',
+        }
+        try:
+            url = url_template.format(**mapping)
+        except Exception:
+            url = url_template
+
+        headers_txt = headers_txt or ''
+        headers = {}
+        if headers_txt:
+            try:
+                headers = json.loads(headers_txt)
+            except Exception:
+                headers = {}
+        # Compose auth headers from stored auth config if provided
+        try:
+            if auth_type == 'Bearer' and token:
+                headers.setdefault('Authorization', f'Bearer {token}')
+            elif auth_type == 'Basic' and basic_user is not None and basic_pass is not None:
+                import base64
+                b = base64.b64encode(f"{basic_user}:{basic_pass}".encode('utf-8')).decode('utf-8')
+                headers.setdefault('Authorization', f'Basic {b}')
+            elif auth_type == 'ClientID/Secret' and client_id and client_secret:
+                headers.setdefault('X-Client-Id', client_id)
+                headers.setdefault('X-Client-Secret', client_secret)
+        except Exception:
+            pass
+        try:
+            resp = requests.get(url, headers=headers, timeout=10)
+            resp.raise_for_status()
+            # Auto-detect WooCommerce header if not provided
+            auto_header = header_key
+            if not auto_header and ('/wp-json/wc/' in url.lower()):
+                auto_header = 'X-WP-Total'
+            # Try header-based total (e.g., WooCommerce X-WP-Total)
+            if auto_header:
+                val = resp.headers.get(auto_header)
+                if val is not None and str(val).strip().isdigit():
+                    return int(val)
+            data = resp.json()
+            # Follow dot-path in JSON payload if provided, e.g., "data.total" or "total_count"
+            path = (count_field_path or '').strip()
+            if path:
+                cur = data
+                for part in path.split('.'):
+                    if isinstance(cur, dict) and part in cur:
+                        cur = cur[part]
+                    else:
+                        cur = None
+                        break
+                if isinstance(cur, (int, float)):
+                    return int(cur)
+            # Fallback common fields
+            for key in ['count','total','total_count']:
+                if isinstance(data, dict) and key in data and isinstance(data[key], (int, float)):
+                    return int(data[key])
+            return None
+        except Exception:
+            return None
+
     if stores_data:
         for store_name, store_data in list(stores_data.items())[:3]:
             with st.expander(f"🏪 {store_name}"):
@@ -186,6 +288,41 @@ def main():
                         st.success("✅ GA4: Đã cấu hình")
                     else:
                         st.warning("⚠️ GA4: Chưa cấu hình")
+                    # REST product count only
+                    try:
+                        rest_total = None
+                        # Dựng URL tự động nếu là Woo và không có URL
+                        auto_url = store_data.get('product_count_api_url')
+                        if not auto_url and store_data.get('domain') and store_data.get('product_count_woo_ck') and store_data.get('product_count_woo_cs'):
+                            dom = str(store_data.get('domain')).rstrip('/')
+                            ck = store_data.get('product_count_woo_ck')
+                            cs = store_data.get('product_count_woo_cs')
+                            auto_url = f"{dom}/wp-json/wc/v3/products?status=publish&per_page=1&consumer_key={ck}&consumer_secret={cs}"
+
+                        if auto_url:
+                            start_str = start_date.strftime('%Y-%m-%d') if start_date else None
+                            end_str = end_date.strftime('%Y-%m-%d') if end_date else None
+                            rest_total = fetch_product_count_via_rest(
+                                auto_url,
+                                store_data.get('product_count_api_headers'),
+                                store_data.get('product_count_count_field'),
+                                store_data.get('product_count_header_key'),
+                                store_data.get('domain'),
+                                start_str,
+                                end_str,
+                                store_data.get('product_count_auth_type'),
+                                store_data.get('product_count_api_token'),
+                                store_data.get('product_count_client_id'),
+                                store_data.get('product_count_client_secret'),
+                                store_data.get('product_count_basic_user'),
+                                store_data.get('product_count_basic_pass'),
+                            )
+                        if rest_total is not None:
+                            st.info(f"🛍️ Products: {rest_total:,}")
+                        else:
+                            st.caption("🛍️ Products: chưa cấu hình REST API hoặc không đọc được")
+                    except Exception:
+                        st.caption("🛍️ Products: lỗi khi gọi REST API")
                 
                 with col2:
                     # Check if Google Ads data exists (JSON files or Google Sheets config)

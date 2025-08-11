@@ -10,6 +10,7 @@ altair>=4.2
 python-dotenv
 pyyaml>=6.0
 gspread>=5.10.0
+requests>=2.31.0
 
 # Build dependencies
 pip>=23.0
