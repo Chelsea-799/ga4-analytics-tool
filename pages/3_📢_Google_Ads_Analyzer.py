@@ -679,12 +679,24 @@ def main():
 
             if 'date' in df.columns:
                 df['date'] = pd.to_datetime(df['date'])
+                # Phát hiện cột giờ/timestamp khả dụng
+                hour_col = None
+                datetime_col = None
+                for cand in ['hour', 'Hour', 'hour_of_day', 'hourOfDay', 'ga_hour']:
+                    if cand in df.columns:
+                        hour_col = cand
+                        break
+                for cand_dt in ['datetime', 'date_time', 'timestamp', 'ts']:
+                    if cand_dt in df.columns:
+                        datetime_col = cand_dt
+                        break
+
                 # Chọn độ phân giải thời gian
                 granularity = st.radio(
                     "Độ phân giải thời gian",
                     options=["Auto", "Giờ", "Ngày", "Tuần", "Tháng"],
                     horizontal=True,
-                    help="Theo giờ khi xem 1 ngày (nếu có cột hour), theo ngày khi xem tuần, theo tuần/tháng khi xem dài ngày"
+                    help="Theo giờ khi xem 1 ngày (cần cột hour hoặc datetime), theo ngày khi xem tuần, theo tuần/tháng khi xem dài ngày"
                 )
 
                 # Tuỳ chọn làm mượt đường cong
@@ -701,7 +713,7 @@ def main():
                         sel_min = pd.to_datetime(df['date'].min())
                         sel_max = pd.to_datetime(df['date'].max())
                         days = (sel_max - sel_min).days + 1
-                        if days <= 1 and 'hour' in df.columns:
+                        if days <= 1 and (hour_col is not None or datetime_col is not None):
                             granularity = "Giờ"
                         elif days <= 60:
                             granularity = "Ngày"
@@ -713,12 +725,15 @@ def main():
                         granularity = "Ngày"
 
                 # Tổng hợp dữ liệu theo granularity
-                if granularity == "Giờ" and 'hour' in df.columns:
+                if granularity == "Giờ" and (hour_col is not None or datetime_col is not None):
                     try:
-                        # Kết hợp date + hour thành timestamp
                         tmp = df.copy()
-                        tmp['hour'] = pd.to_numeric(tmp['hour'], errors='coerce').fillna(0).astype(int).clip(0, 23)
-                        tmp['ts'] = tmp['date'].dt.floor('D') + pd.to_timedelta(tmp['hour'], unit='h')
+                        if hour_col is None and datetime_col is not None:
+                            tmp[datetime_col] = pd.to_datetime(tmp[datetime_col], errors='coerce')
+                            tmp['hour_from_dt'] = tmp[datetime_col].dt.hour
+                            hour_col = 'hour_from_dt'
+                        tmp[hour_col] = pd.to_numeric(tmp[hour_col], errors='coerce').fillna(0).astype(int).clip(0, 23)
+                        tmp['ts'] = tmp['date'].dt.floor('D') + pd.to_timedelta(tmp[hour_col], unit='h')
                         time_data = tmp.groupby('ts').agg({
                             'impressions': 'sum',
                             'clicks': 'sum',
@@ -735,6 +750,15 @@ def main():
                             'conversions': 'sum',
                             'conversion_value': 'sum'
                         }).reset_index()
+                elif granularity == "Giờ" and hour_col is None and datetime_col is None:
+                    st.info("Dữ liệu hiện không có cột giờ hoặc datetime. Vui lòng bổ sung cột 'hour' (0-23) hoặc 'datetime' trong Google Sheets để xem biểu đồ theo giờ. Đang hiển thị theo ngày.")
+                    time_data = df.groupby('date').agg({
+                        'impressions': 'sum',
+                        'clicks': 'sum',
+                        'cost': 'sum',
+                        'conversions': 'sum',
+                        'conversion_value': 'sum'
+                    }).reset_index()
                 elif granularity == "Tuần":
                     time_data = (
                         df.set_index('date')
@@ -819,15 +843,20 @@ def main():
                         hover_vals = [f"{v:.2f}x" for v in y_vals]
                     else:
                         hover_vals = [f"{int(v):,}" for v in y_vals]
+                    # Hiển thị trục thời gian phù hợp (theo giờ hiển thị HH:00)
+                    x_vals = daily_data['date']
+                    hover_x = '%Y-%m-%d %H:00' if (granularity == 'Giờ') else '%Y-%m-%d'
                     fig.add_trace(go.Scatter(
-                        x=daily_data['date'],
+                        x=x_vals,
                         y=y_vals,
                         mode='lines+markers',
                         name=metric_name,
-                        line=dict(color=color_map.get(metric_name, '#1a73e8'), width=3, shape=('spline' if enable_smooth else 'linear'), smoothing=smooth_level),
+                        line=dict(color=color_map.get(metric_name, '#1a73e8'), width=3),
+                        line_shape=('spline' if enable_smooth else 'linear'),
+                        smoothing=(smooth_level if enable_smooth else 0),
                         marker=dict(size=6),
                         yaxis=axis,
-                        hovertemplate='<b>%{x|%Y-%m-%d}</b><br>' + metric_name + ': %{text}<extra></extra>',
+                        hovertemplate='<b>%{x|'+hover_x+'}</b><br>' + metric_name + ': %{text}<extra></extra>',
                         text=hover_vals
                     ))
 
