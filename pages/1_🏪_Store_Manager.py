@@ -18,6 +18,12 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Clear cache to avoid cached-function signature mismatches after deploys
+try:
+    st.cache_data.clear()
+except Exception:
+    pass
+
 # File lưu trữ stores
 STORES_FILE = "stores_data.json"
 
