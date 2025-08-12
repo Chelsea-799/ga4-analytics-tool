@@ -295,6 +295,9 @@ def main():
                         auto_url = store_data.get('product_count_api_url')
                         if not auto_url and store_data.get('domain') and store_data.get('product_count_woo_ck') and store_data.get('product_count_woo_cs'):
                             dom = str(store_data.get('domain')).rstrip('/')
+                            # Đảm bảo có scheme để gọi requests hợp lệ
+                            if not dom.startswith('http://') and not dom.startswith('https://'):
+                                dom = f"https://{dom}"
                             ck = store_data.get('product_count_woo_ck')
                             cs = store_data.get('product_count_woo_cs')
                             auto_url = f"{dom}/wp-json/wc/v3/products?status=publish&per_page=1&consumer_key={ck}&consumer_secret={cs}"
