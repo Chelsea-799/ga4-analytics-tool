@@ -704,10 +704,10 @@ def main():
                     'Conv. Rate': ('ConvRate', 'percent')
                 }
                 default_selection = ['Impressions', 'Cost']
-                selected = st.multiselect("Chọn tối đa 2 chỉ số", list(metric_options.keys()), default=default_selection)
-                if len(selected) > 2:
-                    st.warning("Vui lòng chọn tối đa 2 chỉ số. Đã lấy 2 chỉ số đầu tiên.")
-                    selected = selected[:2]
+                selected = st.multiselect("Chọn tối đa 4 chỉ số", list(metric_options.keys()), default=default_selection)
+                if len(selected) > 4:
+                    st.warning("Vui lòng chọn tối đa 4 chỉ số. Đã lấy 4 chỉ số đầu tiên.")
+                    selected = selected[:4]
                 if len(selected) == 0:
                     selected = default_selection
 
@@ -758,18 +758,22 @@ def main():
                         text=hover_vals
                     ))
 
-                add_metric_trace(selected[0], 'y')
-                if len(selected) >= 2:
-                    add_metric_trace(selected[1], 'y2')
+                axes = ['y', 'y2', 'y3', 'y4']
+                for idx, name in enumerate(selected):
+                    add_metric_trace(name, axes[idx])
 
                 y_title = axis_title(selected[0])
                 y2_title = axis_title(selected[1]) if len(selected) >= 2 else ''
+                y3_title = axis_title(selected[2]) if len(selected) >= 3 else ''
+                y4_title = axis_title(selected[3]) if len(selected) >= 4 else ''
 
                 fig.update_layout(
                     title='Performance theo ngày',
                     xaxis_title='Ngày',
                     yaxis_title=y_title,
                     yaxis2=dict(title=y2_title, overlaying='y', side='right'),
+                    yaxis3=dict(title=y3_title, overlaying='y', side='left', position=0.07),
+                    yaxis4=dict(title=y4_title, overlaying='y', side='right', position=0.93),
                     hovermode='x unified'
                 )
 
