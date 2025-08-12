@@ -674,20 +674,93 @@ def main():
                 st.metric("💎 ROAS", f"{metrics['roas']:.2f}x")
                 st.metric("📈 Conv. Rate", f"{metrics['conversion_rate']:.2f}%")
             
-            # Biểu đồ theo ngày kiểu Google Ads: chọn tối đa 2 chỉ số
-            st.subheader("📈 Biểu đồ theo ngày (chọn chỉ số như Google Ads)")
+            # Biểu đồ theo thời gian kiểu Google Ads: hỗ trợ đổi độ phân giải và làm mượt
+            st.subheader("📈 Biểu đồ theo thời gian (tối đa 4 chỉ số)")
 
             if 'date' in df.columns:
                 df['date'] = pd.to_datetime(df['date'])
-                daily_data = df.groupby('date').agg({
-                    'impressions': 'sum',
-                    'clicks': 'sum',
-                    'cost': 'sum',
-                    'conversions': 'sum',
-                    'conversion_value': 'sum'
-                }).reset_index()
+                # Chọn độ phân giải thời gian
+                granularity = st.radio(
+                    "Độ phân giải thời gian",
+                    options=["Auto", "Giờ", "Ngày", "Tuần", "Tháng"],
+                    horizontal=True,
+                    help="Theo giờ khi xem 1 ngày (nếu có cột hour), theo ngày khi xem tuần, theo tuần/tháng khi xem dài ngày"
+                )
 
-                daily_data['CTR'] = (daily_data['clicks'] / daily_data['impressions'] * 100).fillna(0)
+                # Tuỳ chọn làm mượt đường cong
+                col_s1, col_s2 = st.columns([3, 1])
+                with col_s1:
+                    enable_smooth = st.checkbox("Làm mượt đường (spline)", value=True)
+                with col_s2:
+                    smooth_level = st.slider("Mức làm mượt", min_value=0.0, max_value=1.3, value=0.8, step=0.1)
+
+                # Xác định granularity tự động theo khoảng ngày
+                if granularity == "Auto":
+                    try:
+                        # cố lấy start/end từ bộ lọc ở trên
+                        sel_min = pd.to_datetime(df['date'].min())
+                        sel_max = pd.to_datetime(df['date'].max())
+                        days = (sel_max - sel_min).days + 1
+                        if days <= 1 and 'hour' in df.columns:
+                            granularity = "Giờ"
+                        elif days <= 60:
+                            granularity = "Ngày"
+                        elif days <= 200:
+                            granularity = "Tuần"
+                        else:
+                            granularity = "Tháng"
+                    except Exception:
+                        granularity = "Ngày"
+
+                # Tổng hợp dữ liệu theo granularity
+                if granularity == "Giờ" and 'hour' in df.columns:
+                    try:
+                        # Kết hợp date + hour thành timestamp
+                        tmp = df.copy()
+                        tmp['hour'] = pd.to_numeric(tmp['hour'], errors='coerce').fillna(0).astype(int).clip(0, 23)
+                        tmp['ts'] = tmp['date'].dt.floor('D') + pd.to_timedelta(tmp['hour'], unit='h')
+                        time_data = tmp.groupby('ts').agg({
+                            'impressions': 'sum',
+                            'clicks': 'sum',
+                            'cost': 'sum',
+                            'conversions': 'sum',
+                            'conversion_value': 'sum'
+                        }).reset_index().rename(columns={'ts': 'date'})
+                    except Exception:
+                        # Fallback ngày nếu gặp lỗi
+                        time_data = df.groupby('date').agg({
+                            'impressions': 'sum',
+                            'clicks': 'sum',
+                            'cost': 'sum',
+                            'conversions': 'sum',
+                            'conversion_value': 'sum'
+                        }).reset_index()
+                elif granularity == "Tuần":
+                    time_data = (
+                        df.set_index('date')
+                          .resample('W-MON')
+                          .sum(numeric_only=True)
+                          .reset_index()
+                    )
+                elif granularity == "Tháng":
+                    time_data = (
+                        df.set_index('date')
+                          .resample('MS')
+                          .sum(numeric_only=True)
+                          .reset_index()
+                    )
+                else:  # Ngày
+                    time_data = df.groupby('date').agg({
+                        'impressions': 'sum',
+                        'clicks': 'sum',
+                        'cost': 'sum',
+                        'conversions': 'sum',
+                        'conversion_value': 'sum'
+                    }).reset_index()
+
+                # Tính thêm các chỉ số phụ
+                daily_data = time_data
+                daily_data['CTR'] = (daily_data['clicks'] / daily_data['impressions'] * 100).replace([np.inf, -np.inf], 0).fillna(0)
                 daily_data['CPC'] = (daily_data['cost'] / daily_data['clicks']).replace([np.inf, -np.inf], 0).fillna(0)
                 daily_data['ROAS'] = (daily_data['conversion_value'] / daily_data['cost']).replace([np.inf, -np.inf], 0).fillna(0)
                 daily_data['ConvRate'] = (daily_data['conversions'] / daily_data['clicks'] * 100).replace([np.inf, -np.inf], 0).fillna(0)
@@ -751,7 +824,7 @@ def main():
                         y=y_vals,
                         mode='lines+markers',
                         name=metric_name,
-                        line=dict(color=color_map.get(metric_name, '#1a73e8'), width=3),
+                        line=dict(color=color_map.get(metric_name, '#1a73e8'), width=3, shape=('spline' if enable_smooth else 'linear'), smoothing=smooth_level),
                         marker=dict(size=6),
                         yaxis=axis,
                         hovertemplate='<b>%{x|%Y-%m-%d}</b><br>' + metric_name + ': %{text}<extra></extra>',
