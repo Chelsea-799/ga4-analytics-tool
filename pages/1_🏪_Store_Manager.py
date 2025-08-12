@@ -7,6 +7,7 @@ import streamlit as st
 import json
 import os
 import tempfile
+from typing import Optional
 from datetime import datetime
 
 # Cấu hình trang
@@ -279,7 +280,7 @@ def main():
     else:
         # Helper: fetch product count via REST (domain only)
         @st.cache_data(ttl=600)
-        def _fetch_product_count(url_template: str, headers_txt: str | None, count_field: str | None, header_key: str | None, domain: str | None):
+        def _fetch_product_count(url_template: str, headers_txt: Optional[str], count_field: Optional[str], header_key: Optional[str], domain: Optional[str]):
             try:
                 import requests
             except Exception:

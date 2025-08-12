@@ -8,6 +8,7 @@ import json
 import os
 from datetime import datetime, timedelta
 import tempfile
+from typing import Optional
 
 # Page config
 st.set_page_config(
@@ -195,19 +196,19 @@ def main():
     @st.cache_data(ttl=600)
     def fetch_product_count_via_rest(
         url_template: str,
-        headers_txt: str | None,
-        count_field_path: str | None,
-        header_key: str | None,
-        domain_value: str | None,
-        start_date_str: str | None,
-        end_date_str: str | None,
-        auth_type: str | None,
-        token: str | None,
-        client_id: str | None,
-        client_secret: str | None,
-        basic_user: str | None,
-        basic_pass: str | None,
-    ) -> int | None:
+        headers_txt: Optional[str],
+        count_field_path: Optional[str],
+        header_key: Optional[str],
+        domain_value: Optional[str],
+        start_date_str: Optional[str],
+        end_date_str: Optional[str],
+        auth_type: Optional[str],
+        token: Optional[str],
+        client_id: Optional[str],
+        client_secret: Optional[str],
+        basic_user: Optional[str],
+        basic_pass: Optional[str],
+    ) -> Optional[int]:
         try:
             import requests  # local import to avoid hard dep if unused
         except Exception:
