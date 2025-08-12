@@ -846,19 +846,28 @@ def main():
                     # Hiển thị trục thời gian phù hợp (theo giờ hiển thị HH:00)
                     x_vals = daily_data['date']
                     hover_x = '%Y-%m-%d %H:00' if (granularity == 'Giờ') else '%Y-%m-%d'
-                    fig.add_trace(go.Scatter(
+                    scatter_kwargs = dict(
                         x=x_vals,
                         y=y_vals,
                         mode='lines+markers',
                         name=metric_name,
                         line=dict(color=color_map.get(metric_name, '#1a73e8'), width=3),
-                        line_shape=('spline' if enable_smooth else 'linear'),
-                        smoothing=(smooth_level if enable_smooth else 0),
                         marker=dict(size=6),
                         yaxis=axis,
                         hovertemplate='<b>%{x|'+hover_x+'}</b><br>' + metric_name + ': %{text}<extra></extra>',
                         text=hover_vals
-                    ))
+                    )
+                    # Thử bật spline nếu môi trường Plotly hỗ trợ, nếu lỗi thì fallback
+                    if enable_smooth:
+                        scatter_kwargs['line_shape'] = 'spline'
+                        scatter_kwargs['smoothing'] = float(smooth_level)
+                    try:
+                        fig.add_trace(go.Scatter(**scatter_kwargs))
+                    except Exception:
+                        # Xoá các tham số có thể không hỗ trợ và vẽ lại
+                        scatter_kwargs.pop('line_shape', None)
+                        scatter_kwargs.pop('smoothing', None)
+                        fig.add_trace(go.Scatter(**scatter_kwargs))
 
                 axes = ['y', 'y2', 'y3', 'y4']
                 for idx, name in enumerate(selected):
