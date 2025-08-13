@@ -397,6 +397,30 @@ def analyze_ads_performance(df):
         'roas': roas
     }
 
+def safe_group_sum(df: pd.DataFrame, by_col: str) -> pd.DataFrame:
+    """Groupby sum an toàn: chỉ cộng các cột đang tồn tại; tự thêm cột thiếu = 0.
+    Trả về DataFrame đã reset_index.
+    """
+    expected_cols = ['impressions', 'clicks', 'cost', 'conversions', 'conversion_value']
+    # Đảm bảo cột by_col tồn tại
+    if by_col not in df.columns:
+        # Tạo khung rỗng với các cột kỳ vọng
+        result = pd.DataFrame(columns=[by_col] + expected_cols)
+        return result
+    present = [c for c in expected_cols if c in df.columns]
+    if len(present) == 0:
+        # Không có cột số liệu, trả về unique by_col và các cột số liệu = 0
+        result = df[[by_col]].drop_duplicates().copy()
+        for c in expected_cols:
+            result[c] = 0
+        return result.reset_index(drop=True)
+    grouped = df.groupby(by_col)[present].sum().reset_index()
+    # Bổ sung cột thiếu = 0 để đồng nhất
+    for c in expected_cols:
+        if c not in grouped.columns:
+            grouped[c] = 0
+    return grouped
+
 def create_demo_ads_data():
     """Tạo dữ liệu demo cho Google Ads"""
     dates = pd.date_range(start='2024-01-01', end='2024-01-31', freq='D')
@@ -734,31 +758,14 @@ def main():
                             hour_col = 'hour_from_dt'
                         tmp[hour_col] = pd.to_numeric(tmp[hour_col], errors='coerce').fillna(0).astype(int).clip(0, 23)
                         tmp['ts'] = tmp['date'].dt.floor('D') + pd.to_timedelta(tmp[hour_col], unit='h')
-                        time_data = tmp.groupby('ts').agg({
-                            'impressions': 'sum',
-                            'clicks': 'sum',
-                            'cost': 'sum',
-                            'conversions': 'sum',
-                            'conversion_value': 'sum'
-                        }).reset_index().rename(columns={'ts': 'date'})
+                        tmp = tmp.rename(columns={'ts': 'date'})
+                        time_data = safe_group_sum(tmp, by_col='date')
                     except Exception:
                         # Fallback ngày nếu gặp lỗi
-                        time_data = df.groupby('date').agg({
-                            'impressions': 'sum',
-                            'clicks': 'sum',
-                            'cost': 'sum',
-                            'conversions': 'sum',
-                            'conversion_value': 'sum'
-                        }).reset_index()
+                        time_data = safe_group_sum(df, by_col='date')
                 elif granularity == "Giờ" and hour_col is None and datetime_col is None:
                     st.info("Dữ liệu hiện không có cột giờ hoặc datetime. Vui lòng bổ sung cột 'hour' (0-23) hoặc 'datetime' trong Google Sheets để xem biểu đồ theo giờ. Đang hiển thị theo ngày.")
-                    time_data = df.groupby('date').agg({
-                        'impressions': 'sum',
-                        'clicks': 'sum',
-                        'cost': 'sum',
-                        'conversions': 'sum',
-                        'conversion_value': 'sum'
-                    }).reset_index()
+                    time_data = safe_group_sum(df, by_col='date')
                 elif granularity == "Tuần":
                     time_data = (
                         df.set_index('date')
@@ -774,13 +781,7 @@ def main():
                           .reset_index()
                     )
                 else:  # Ngày
-                    time_data = df.groupby('date').agg({
-                        'impressions': 'sum',
-                        'clicks': 'sum',
-                        'cost': 'sum',
-                        'conversions': 'sum',
-                        'conversion_value': 'sum'
-                    }).reset_index()
+                    time_data = safe_group_sum(df, by_col='date')
 
                 # Tính thêm các chỉ số phụ
                 daily_data = time_data
@@ -894,13 +895,7 @@ def main():
             st.subheader("🏆 Top Campaigns")
             
             if 'campaign' in df.columns:
-                campaign_stats = df.groupby('campaign').agg({
-                    'impressions': 'sum',
-                    'clicks': 'sum',
-                    'cost': 'sum',
-                    'conversions': 'sum',
-                    'conversion_value': 'sum'
-                }).reset_index()
+                campaign_stats = safe_group_sum(df, by_col='campaign')
                 
                 campaign_stats['CTR'] = (campaign_stats['clicks'] / campaign_stats['impressions'] * 100).fillna(0)
                 campaign_stats['CPC'] = (campaign_stats['cost'] / campaign_stats['clicks']).fillna(0)
