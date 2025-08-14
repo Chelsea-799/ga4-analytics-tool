@@ -70,11 +70,11 @@ def main():
     
     # Load stores data with backward-compatible normalization
     stores_data = {}
+    # 1) Local file
     if os.path.exists('stores_data.json'):
         try:
             with open('stores_data.json', 'r', encoding='utf-8') as f:
                 raw = json.load(f)
-            # Normalize legacy list structure -> dict keyed by store_name
             if isinstance(raw, list):
                 normalized = {}
                 for s in raw:
@@ -84,10 +84,8 @@ def main():
                         'domain': s.get('domain'),
                         'created_at': s.get('created_at'),
                         'last_used': s.get('last_used'),
-                        # GA4 keys mapping
                         'ga4_property_id': s.get('property_id') or s.get('ga4_property_id'),
                         'ga4_credentials_content': s.get('credentials_content') or s.get('ga4_credentials_content'),
-                        # Google Ads keys (if already present in file)
                         'google_ads_customer_id': s.get('google_ads_customer_id'),
                         'google_ads_developer_token': s.get('google_ads_developer_token'),
                         'google_ads_client_id': s.get('google_ads_client_id'),
@@ -95,7 +93,6 @@ def main():
                         'google_ads_refresh_token': s.get('google_ads_refresh_token'),
                     }
                 stores_data = normalized
-                # Try to persist normalized structure for future runs
                 try:
                     with open('stores_data.json', 'w', encoding='utf-8') as wf:
                         json.dump(stores_data, wf, ensure_ascii=False, indent=2)
@@ -103,10 +100,35 @@ def main():
                     pass
             elif isinstance(raw, dict):
                 stores_data = raw
-            else:
-                stores_data = {}
         except Exception:
-            stores_data = {}
+            pass
+    # 2) Fallback from Streamlit Secrets
+    if not stores_data:
+        try:
+            sec = getattr(st, 'secrets', None)
+            if sec is not None:
+                payload = sec.get('stores_data_json') or sec.get('STORES_DATA_JSON')
+                if payload:
+                    try:
+                        raw = json.loads(payload) if isinstance(payload, str) else payload
+                    except Exception:
+                        raw = {}
+                    if isinstance(raw, list):
+                        normalized = {}
+                        for s in raw:
+                            name = s.get('store_name') or s.get('name') or f"store_{s.get('id','')}"
+                            normalized[name] = s
+                        stores_data = normalized
+                    elif isinstance(raw, dict):
+                        stores_data = raw
+                    # persist locally for this session
+                    try:
+                        with open('stores_data.json', 'w', encoding='utf-8') as wf:
+                            json.dump(stores_data, wf, ensure_ascii=False, indent=2)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
     
     # Date range for REST product counts
     try:

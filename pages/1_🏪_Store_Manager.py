@@ -29,6 +29,7 @@ STORES_FILE = "stores_data.json"
 
 def load_stores():
     """Tải danh sách stores từ file (tương thích ngược)"""
+    # 1) Ưu tiên file cục bộ (nếu có)
     if os.path.exists(STORES_FILE):
         try:
             with open(STORES_FILE, 'r', encoding='utf-8') as f:
@@ -58,12 +59,42 @@ def load_stores():
                 except Exception:
                     pass
                 return normalized
-            elif isinstance(raw, dict):
+            if isinstance(raw, dict):
                 return raw
-            else:
-                return {}
         except Exception:
-            return {}
+            pass
+    # 2) Fallback từ Streamlit Secrets (persist qua redeploy trên Cloud)
+    try:
+        import streamlit as _st
+        sec = getattr(_st, 'secrets', None)
+        if sec is not None:
+            payload = sec.get('stores_data_json') or sec.get('STORES_DATA_JSON')
+            if payload:
+                try:
+                    raw = json.loads(payload) if isinstance(payload, str) else payload
+                except Exception:
+                    raw = {}
+                if isinstance(raw, list):
+                    normalized = {}
+                    for s in raw:
+                        name = s.get('store_name') or s.get('name') or f"store_{s.get('id','')}"
+                        normalized[name] = s
+                    # Lưu ra file tạm để các trang khác dùng trong phiên hiện tại
+                    try:
+                        with open(STORES_FILE, 'w', encoding='utf-8') as wf:
+                            json.dump(normalized, wf, ensure_ascii=False, indent=2)
+                    except Exception:
+                        pass
+                    return normalized
+                if isinstance(raw, dict):
+                    try:
+                        with open(STORES_FILE, 'w', encoding='utf-8') as wf:
+                            json.dump(raw, wf, ensure_ascii=False, indent=2)
+                    except Exception:
+                        pass
+                    return raw
+    except Exception:
+        pass
     return {}
 
 def save_stores(stores):

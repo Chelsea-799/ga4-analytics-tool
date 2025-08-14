@@ -26,22 +26,51 @@ st.set_page_config(
 
 def load_stores():
     """Load stores data với backward compatibility"""
+    # 1) Local file
     try:
-        with open('stores_data.json', 'r', encoding='utf-8') as f:
-            stores_data = json.load(f)
-        
-        # Backward compatibility: nếu là list thì convert thành dict
-        if isinstance(stores_data, list):
-            stores_dict = {}
-            for store in stores_data:
-                name = store.get('store_name') or store.get('name') or f"store_{store.get('id','')}"
-                stores_dict[name] = store
-            return stores_dict
-        else:
+        if os.path.exists('stores_data.json'):
+            with open('stores_data.json', 'r', encoding='utf-8') as f:
+                stores_data = json.load(f)
+            if isinstance(stores_data, list):
+                stores_dict = {}
+                for store in stores_data:
+                    name = store.get('store_name') or store.get('name') or f"store_{store.get('id','')}"
+                    stores_dict[name] = store
+                return stores_dict
             return stores_data
-    except Exception as e:
-        st.error(f"❌ Lỗi load stores: {e}")
-        return {}
+    except Exception:
+        pass
+    # 2) Streamlit Secrets fallback
+    try:
+        sec = getattr(st, 'secrets', None)
+        if sec is not None:
+            payload = sec.get('stores_data_json') or sec.get('STORES_DATA_JSON')
+            if payload:
+                try:
+                    raw = json.loads(payload) if isinstance(payload, str) else payload
+                except Exception:
+                    raw = {}
+                if isinstance(raw, list):
+                    stores_dict = {}
+                    for store in raw:
+                        name = store.get('store_name') or store.get('name') or f"store_{store.get('id','')}"
+                        stores_dict[name] = store
+                    try:
+                        with open('stores_data.json', 'w', encoding='utf-8') as wf:
+                            json.dump(stores_dict, wf, ensure_ascii=False, indent=2)
+                    except Exception:
+                        pass
+                    return stores_dict
+                if isinstance(raw, dict):
+                    try:
+                        with open('stores_data.json', 'w', encoding='utf-8') as wf:
+                            json.dump(raw, wf, ensure_ascii=False, indent=2)
+                    except Exception:
+                        pass
+                    return raw
+    except Exception:
+        pass
+    return {}
 
 def get_cursor_file(store_name):
     """Lấy file cursor cho store"""
